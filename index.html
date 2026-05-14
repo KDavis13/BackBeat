@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f0f10" />
+  <title>BackBeat</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="player">
+    <header class="player__header">
+      <h1>BackBeat</h1>
+    </header>
+
+    <section class="beat" aria-label="Pulso actual">
+      <div class="beat__dots" id="beatDots"></div>
+      <div class="beat__bpm">
+        <span id="bpmValue">100</span>
+        <span class="beat__bpm-label">BPM</span>
+      </div>
+    </section>
+
+    <section class="controls">
+      <label class="control">
+        <span class="control__label">BPM</span>
+        <input id="bpmInput" type="range" min="40" max="240" step="1" value="100" />
+      </label>
+
+      <label class="control">
+        <span class="control__label">Pulsos por compás</span>
+        <select id="beatsPerBar">
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4" selected>4</option>
+          <option value="5">5</option>
+          <option value="6">6</option>
+          <option value="7">7</option>
+        </select>
+      </label>
+
+      <button id="playBtn" class="playBtn" type="button" aria-pressed="false">
+        <span class="playBtn__icon" aria-hidden="true">▶</span>
+        <span class="playBtn__label">Play</span>
+      </button>
+    </section>
+
+    <footer class="player__footer">
+      <small>Paso 1 — metrónomo. Próximos pasos: secciones, avisos, fills.</small>
+    </footer>
+  </main>
+
+  <script src="js/audio.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
