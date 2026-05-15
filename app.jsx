@@ -97,7 +97,7 @@ function App() {
                       }
                     }}>Editor</button>
             <button className="tab" data-on={view.name === 'onoma' ? '1' : '0'}
-                    onClick={() => setView({ name: 'onoma' })}>Onomatopeyas</button>
+                    onClick={() => setView({ name: 'onoma' })}>Grooves</button>
           </div>
         </div>
       )}

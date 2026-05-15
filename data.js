@@ -28,12 +28,12 @@
     {
       id: 'taka', name: 'ta-ka-tum-pá', resolution: 16,
       hits: [
-        { step: 0,  text: 'ta',  sound: 'tom-hi', velocity: 0.9 },
-        { step: 2,  text: 'ka',  sound: 'tom-hi', velocity: 0.7 },
-        { step: 4,  text: 'tum', sound: 'tom-low', velocity: 1.0 },
-        { step: 8,  text: 'pa',  sound: 'snare',  velocity: 0.85 },
-        { step: 12, text: 'tum', sound: 'kick',   velocity: 1.0 },
-        { step: 14, text: 'pá',  sound: 'snare',  velocity: 1.0 },
+        { step: 0,  text: 'ta',  sound: 'tom1',  velocity: 0.9 },
+        { step: 2,  text: 'ka',  sound: 'tom1',  velocity: 0.7 },
+        { step: 4,  text: 'tum', sound: 'tom2',  velocity: 1.0 },
+        { step: 8,  text: 'pa',  sound: 'snare', velocity: 0.85 },
+        { step: 12, text: 'tum', sound: 'kick',  velocity: 1.0 },
+        { step: 14, text: 'pá',  sound: 'snare', velocity: 1.0 },
       ],
     },
     {
@@ -49,7 +49,7 @@
       id: 'tripA', name: 'tum-pa-tá (tresillos)', resolution: 12,
       hits: [
         { step: 0,  text: 'tum', sound: 'kick',  velocity: 1.0 },
-        { step: 4,  text: 'pa',  sound: 'tom-hi', velocity: 0.7 },
+        { step: 4,  text: 'pa',  sound: 'tom1',  velocity: 0.7 },
         { step: 5,  text: 'tá',  sound: 'snare', velocity: 1.0 },
         { step: 8,  text: 'tum', sound: 'kick',  velocity: 0.95 },
         { step: 11, text: 'pá',  sound: 'snare', velocity: 1.0 },
@@ -250,16 +250,35 @@
     try { localStorage.setItem(KEY_SONGS, JSON.stringify(songs)); } catch (e) {}
   }
 
+  // Legacy drum-sound IDs ("tom-hi" / "tom-low") get rewritten on load to
+  // the new kit naming, so existing patterns render their hits on the right
+  // editor row.
+  const SOUND_ALIASES = { 'tom-hi': 'tom1', 'tom-low': 'tom2' };
+  function migrateGroove(p) {
+    if (!p || !Array.isArray(p.hits)) return p;
+    let changed = false;
+    const hits = p.hits.map((h) => {
+      const renamed = SOUND_ALIASES[h.sound];
+      if (renamed) { changed = true; return { ...h, sound: renamed }; }
+      return h;
+    });
+    return changed ? { ...p, hits } : p;
+  }
   function loadOnoma() {
     try {
       const raw = localStorage.getItem(KEY_ONOMA);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) return parsed.map(migrateGroove);
       }
       for (const key of ['backbeat.onoma.v4', 'backbeat.onoma.v3', 'backbeat.onoma.v2']) {
         const v = localStorage.getItem(key);
-        if (v) { try { const p = JSON.parse(v); if (Array.isArray(p)) return p; } catch (e) {} }
+        if (v) {
+          try {
+            const p = JSON.parse(v);
+            if (Array.isArray(p)) return p.map(migrateGroove);
+          } catch (e) {}
+        }
       }
       return ONOMATOPOEIAS.slice();
     } catch (e) { return ONOMATOPOEIAS.slice(); }

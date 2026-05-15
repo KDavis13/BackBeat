@@ -56,7 +56,7 @@ function OnomaPicker({ ids, onChange, onomaItems, slotLabel }) {
       <div className="ed-onoma-add">
         <select className="select" value=""
                 onChange={(e) => { if (e.target.value) add(e.target.value); }}>
-          <option value="">+ añadir onomatopeya…</option>
+          <option value="">+ añadir groove…</option>
           {onomaItems.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
         </select>
       </div>
@@ -91,7 +91,7 @@ function FillEditor({ fill, onChange, onomaItems }) {
         <label className="ed-fill-check">
           <input type="checkbox" checked={!!fill.singSyllables}
                  onChange={(e) => set({ singSyllables: e.target.checked })} />
-          <span>Cantar la onomatopeya (TTS lee las sílabas)</span>
+          <span>Cantar el groove (TTS lee las sílabas)</span>
         </label>
         <label className="ed-fill-check">
           <input type="checkbox" checked={fill.muteClick !== false}

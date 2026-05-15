@@ -1,11 +1,14 @@
-/* Onomatopoeia editor — grid-based pattern builder with audio preview. */
+/* Groove editor — grid-based pattern builder with audio preview. */
 
 const SOUNDS = [
-  { id: 'kick',    label: 'Kick',    color: '#fb923c' },
-  { id: 'snare',   label: 'Snare',   color: '#fbbf24' },
-  { id: 'tom-hi',  label: 'Tom Hi',  color: '#fb7185' },
-  { id: 'tom-low', label: 'Tom Low', color: '#f472b6' },
-  { id: 'hat',     label: 'Hat',     color: '#a3e635' },
+  { id: 'kick',  label: 'Kick',   color: '#fb923c' },
+  { id: 'snare', label: 'Snare',  color: '#fbbf24' },
+  { id: 'tom1',  label: 'Tom 1',  color: '#fb7185' },
+  { id: 'tom2',  label: 'Tom 2',  color: '#f472b6' },
+  { id: 'tom3',  label: 'Tom 3',  color: '#c084fc' },
+  { id: 'hat',   label: 'Hi-hat', color: '#a3e635' },
+  { id: 'crash', label: 'Crash',  color: '#facc15' },
+  { id: 'ride',  label: 'Ride',   color: '#38bdf8' },
 ];
 
 const RESOLUTIONS = [
@@ -204,7 +207,7 @@ function OnomaEditorPanel({ pattern, onChange, onDelete, bpm, onBpmChange }) {
       <div className="onoma-editor-head">
         <input className="input onoma-name" value={pattern.name}
                onChange={(e) => onChange({ ...pattern, name: e.target.value })} />
-        <button className="btn icon danger" onClick={onDelete} title="Eliminar patrón">
+        <button className="btn icon danger" onClick={onDelete} title="Eliminar groove">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
         </button>
       </div>
@@ -272,8 +275,8 @@ function OnomaScreen({ items, onChange, onAdd, onDelete }) {
     <div className="page onoma-page">
       <div className="page-head">
         <div>
-          <h1 className="page-title">Onomatopeyas</h1>
-          <p className="page-sub">Patrones rítmicos hablados — úsalos en cualquier fill</p>
+          <h1 className="page-title">Grooves</h1>
+          <p className="page-sub">Patrones de batería para los fills — kick, snare, toms, hi-hat, crash y ride</p>
         </div>
         <div className="page-actions">
           <button className="btn primary" onClick={onAdd}>
@@ -304,7 +307,7 @@ function OnomaScreen({ items, onChange, onAdd, onDelete }) {
             </button>
           ))}
           {items.length === 0 && (
-            <div className="empty-state">Crea tu primer patrón.</div>
+            <div className="empty-state">Crea tu primer groove.</div>
           )}
         </aside>
 
@@ -315,7 +318,7 @@ function OnomaScreen({ items, onChange, onAdd, onDelete }) {
                               onDelete={() => onDelete(current.id)}
                               bpm={bpm} onBpmChange={setBpm} />
           ) : (
-            <div className="empty-state">Sin patrones todavía.</div>
+            <div className="empty-state">Sin grooves todavía.</div>
           )}
         </div>
       </div>

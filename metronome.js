@@ -218,18 +218,22 @@
     }
 
     /** Schedule a single percussion hit at audio time `when`.
-     * sound ∈ "kick" | "snare" | "tom-hi" | "tom-low" | "hat" | "click"
+     * sound ∈ "kick" | "snare" | "tom1" | "tom2" | "tom3" | "hat" | "crash" | "ride" | "click"
+     * Legacy aliases: "tom-hi" → tom1, "tom-low" → tom2.
      * Returns the AudioContext time of the hit (for sync). */
     schedulePerc(when, sound = 'snare', velocity = 1) {
       this.init().then(() => {
         const ctx = this.ctx;
         const t = Math.max(when, ctx.currentTime + 0.005);
         const v = Math.max(0.05, Math.min(1, velocity));
-        if (sound === 'kick')      this._synthKick(t, v);
-        else if (sound === 'snare') this._synthSnare(t, v);
-        else if (sound === 'tom-hi') this._synthTom(t, v, 280);
-        else if (sound === 'tom-low') this._synthTom(t, v, 140);
-        else if (sound === 'hat')   this._synthHat(t, v);
+        if (sound === 'kick')                              this._synthKick(t, v);
+        else if (sound === 'snare')                        this._synthSnare(t, v);
+        else if (sound === 'tom1' || sound === 'tom-hi')   this._synthTom(t, v, 280);
+        else if (sound === 'tom2' || sound === 'tom-low')  this._synthTom(t, v, 180);
+        else if (sound === 'tom3')                         this._synthTom(t, v, 110);
+        else if (sound === 'hat')                          this._synthHat(t, v);
+        else if (sound === 'crash')                        this._synthCrash(t, v);
+        else if (sound === 'ride')                         this._synthRide(t, v);
         else                        this._click(t, { isQuarter: true, accent: false, accentStrong: false, subOfBeat: 0 });
       });
       return when;
@@ -298,6 +302,49 @@
       gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
       src.connect(hp).connect(gain).connect(this.percGain || this.master);
       src.start(t); src.stop(t + 0.08);
+    }
+    _synthCrash(t, v) {
+      // Bright noise wash, long decay, slight bandpass shimmer.
+      const ctx = this.ctx;
+      const src = ctx.createBufferSource();
+      src.buffer = this._noiseBuffer();
+      src.loop = true; // 0.3s buffer looped under the envelope
+      const hp = ctx.createBiquadFilter();
+      hp.type = 'highpass'; hp.frequency.value = 4500;
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = 7000; bp.Q.value = 1.0;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(v * 0.5, t + 0.005);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 1.4);
+      src.connect(hp).connect(bp).connect(gain).connect(this.percGain || this.master);
+      src.start(t); src.stop(t + 1.5);
+    }
+    _synthRide(t, v) {
+      // More tonal than crash: a sustaining square + a stick-noise attack.
+      const ctx = this.ctx;
+      const osc = ctx.createOscillator();
+      const og = ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = 820;
+      og.gain.setValueAtTime(0.0001, t);
+      og.gain.exponentialRampToValueAtTime(v * 0.16, t + 0.004);
+      og.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+      const hp = ctx.createBiquadFilter();
+      hp.type = 'highpass'; hp.frequency.value = 3500;
+      osc.connect(hp).connect(og).connect(this.percGain || this.master);
+      osc.start(t); osc.stop(t + 0.7);
+      // stick attack — short noise transient
+      const src = ctx.createBufferSource();
+      src.buffer = this._noiseBuffer();
+      const hp2 = ctx.createBiquadFilter();
+      hp2.type = 'highpass'; hp2.frequency.value = 5500;
+      const ng = ctx.createGain();
+      ng.gain.setValueAtTime(0.0001, t);
+      ng.gain.exponentialRampToValueAtTime(v * 0.28, t + 0.002);
+      ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+      src.connect(hp2).connect(ng).connect(this.percGain || this.master);
+      src.start(t); src.stop(t + 0.25);
     }
   }
 
