@@ -197,7 +197,7 @@ function PhraseEditor({ phrase, index, total, onChange, onMove, onDuplicate, onD
   );
 }
 
-function SectionEditor({ section, index, total, collapsed, onToggleCollapse, onChange, onDelete, onMove, onDuplicate, onomaItems }) {
+function SectionEditor({ section, index, total, collapsed, onToggleCollapse, onChange, onDelete, onMove, onDuplicate, onSplit, onomaItems }) {
   const setSection = (patch) => onChange({ ...section, ...patch });
   const cue = section.endCue || {};
   const setCue = (patch) => setSection({ endCue: { ...cue, ...patch } });
@@ -269,6 +269,18 @@ function SectionEditor({ section, index, total, collapsed, onToggleCollapse, onC
           <button className="btn icon ghost" onClick={onDuplicate} title="Duplicar sección">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="8" y="8" width="12" height="12"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
           </button>
+          {phrases.length >= 2 && (
+            <button className="btn icon ghost" onClick={onSplit}
+                    title={`Separar las ${phrases.length} frases en ${phrases.length} secciones`}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 3v6"/>
+                <path d="M12 9l-5 6"/>
+                <path d="M12 9l5 6"/>
+                <path d="M7 15v6"/>
+                <path d="M17 15v6"/>
+              </svg>
+            </button>
+          )}
           <button className="btn icon danger" onClick={() => onDelete(section.id)} title="Eliminar">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
           </button>
@@ -400,6 +412,43 @@ function Editor({ song, onChange, onDone, onCancel, onPlay, onomaItems }) {
     next.splice(i + 1, 0, copy);
     set({ sections: next });
   };
+  // Explode a section's phrases into one section per phrase. The original
+  // section's endCue moves to the last new section (it represented the
+  // transition out of the whole block); intermediate sections get a default
+  // change-cue with empty say. Colors fan out through SECTION_COLORS starting
+  // from the original's slot so the new neighbours don't all match.
+  const splitSectionPhrases = (i) => {
+    const sec = song.sections[i];
+    const phrases = sec.phrases || [];
+    if (phrases.length < 2) return;
+    if (!confirm(
+      `¿Separar las ${phrases.length} frases de "${sec.name || 'la sección'}" en ${phrases.length} secciones nuevas?`
+    )) return;
+    const baseColorIdx = Math.max(0, SECTION_COLORS.indexOf(sec.color || 'orange'));
+    const newSections = phrases.map((p, pi) => {
+      const isLast = pi === phrases.length - 1;
+      const color = pi === 0
+        ? (sec.color || SECTION_COLORS[0])
+        : SECTION_COLORS[(baseColorIdx + pi) % SECTION_COLORS.length];
+      const phraseName = (p.name || '').trim();
+      const name = phraseName
+        || `${sec.name || 'Sección'} ${String.fromCharCode(65 + pi)}`;
+      return {
+        id: window.BBData.uid(),
+        name,
+        color,
+        subdivision: sec.subdivision,
+        // Promote the phrase: regenerate id and drop its name (now the section's).
+        phrases: [{ ...p, id: window.BBData.uid(), name: undefined }],
+        endCue: isLast
+          ? (sec.endCue ? { ...sec.endCue } : { type: 'change', say: '', leadBars: 2 })
+          : { type: 'change', say: '', leadBars: 2 },
+      };
+    });
+    const next = song.sections.slice();
+    next.splice(i, 1, ...newSections);
+    set({ sections: next });
+  };
   const addSection = () => {
     const used = song.sections.map((s) => s.color);
     const nextColor = SECTION_COLORS.find((c) => !used.includes(c)) || 'orange';
@@ -497,6 +546,7 @@ function Editor({ song, onChange, onDone, onCancel, onPlay, onomaItems }) {
                          onDelete={deleteSection}
                          onMove={moveSection}
                          onDuplicate={() => duplicateSection(i)}
+                         onSplit={() => splitSectionPhrases(i)}
                          onomaItems={onomaItems} />
         ))}
       </div>
