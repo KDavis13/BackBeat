@@ -47,8 +47,16 @@
 
   <script>
     // Register the service worker. Skip on file:// (won't work) and quietly
-    // ignore failures (e.g. iOS Safari without permissions).
+    // ignore failures (e.g. iOS Safari without permissions). When a new SW
+    // takes control (CACHE_NAME bumped + clients.claim()) we auto-reload so
+    // the user picks up the fresh assets without a second manual refresh.
     if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+      let reloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloading) return;
+        reloading = true;
+        window.location.reload();
+      });
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('sw.js').catch(() => {});
       });
