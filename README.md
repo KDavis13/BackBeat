@@ -1,37 +1,42 @@
 # BackBeat
 
-Chuleta personal para batería: metrónomo + conteo de compases + avisos de cambios y fills.
+Guía para baterías: metrónomo con scheduler de baja latencia, conteo de compases, avisos de cambios y fills, y gestor de onomatopeyas con percusión sintetizada.
 
-PWA mínima, sin build step. Se abre en cualquier navegador (móvil, tablet, ordenador) y se puede instalar en pantalla de inicio.
+Aplicación estática (HTML + CSS + React 18 vía CDN, sin build step). Se sirve como cualquier carpeta de ficheros estáticos.
 
 ## Cómo usar
 
-Abrir `index.html` directamente en el navegador, o servir la carpeta con cualquier servidor estático:
-
 ```bash
-python3 -m http.server 8000
-# luego abrir http://localhost:8000
+npx serve .
+# o cualquier servidor estático (php -S, http.server, etc.)
+# Luego abrir http://localhost:8000
 ```
+
+> El servidor es necesario en lugar de `file://` porque cargamos JSX vía Babel-standalone y `<script src="...jsx">` requiere HTTP.
+
+## Pantallas
+
+- **Biblioteca** — listado de canciones, importar/exportar JSON, crear/editar/borrar.
+- **Editor** — título, artista, BPM, compás (3/4, 4/4, 6/4, 7/4), subdivisión por canción y por sección (negras/corcheas/tresillos/semicorcheas), secciones con compases, cues (cambio/fill/parada), texto TTS y onomatopeya asignada.
+- **Player** — metrónomo Web Audio con lookahead scheduler, sidebar de secciones clicable (salto por sección y por compás), modos de visualización del beat (puntos/círculo/timeline), modos de aviso (banner/glow/tinte/números enormes), overlay de onomatopeya con percusión sincronizada.
+- **Onomatopeyas** — gestor de patrones rítmicos en grid (resolución 8/12/16/24), filas kick/snare/tom-hi/tom-low/hat, preview con loop al BPM de la canción.
+
+## Persistencia
+
+Canciones y onomatopeyas se guardan en `localStorage` (claves `backbeat.songs.v3`, `backbeat.onoma.v3`). El botón de exportar bajará un JSON con todo.
+
+## Stack
+
+- React 18 + ReactDOM (UMD, vía CDN)
+- Babel standalone (transforma JSX en el navegador)
+- Web Audio API para metrónomo y percusión sintetizada
+- SpeechSynthesis API para los avisos de voz
 
 ## Estructura
 
-- `index.html` — punto de entrada
-- `styles.css` — estilos
-- `js/audio.js` — motor de click con Web Audio API
-- `js/scheduler.js` — avance por secciones/compases (próximamente)
-- `js/speech.js` — avisos TTS (próximamente)
-- `songs/` — canciones de ejemplo en JSON
-
-## Formato de canción
-
-```json
-{
-  "title": "Smoke on the Water",
-  "bpm": 112,
-  "beatsPerBar": 4,
-  "sections": [
-    { "name": "Intro", "bars": 4, "endCue": { "type": "fill", "say": "fill simple" } },
-    { "name": "Estrofa", "bars": 8, "endCue": { "type": "change", "say": "estribillo" } }
-  ]
-}
-```
+- `index.html` — entrypoint y carga de scripts
+- `styles.css`, `player.css`, `features.css` — sistema de diseño + componentes
+- `metronome.js` — engine de audio (scheduler + percusión)
+- `data.js` — datos de ejemplo y helpers de almacenamiento
+- `app.jsx` — root, router de pantallas y panel de tweaks
+- `player.jsx`, `library.jsx`, `editor.jsx`, `onoma.jsx`, `beatviz.jsx`, `tweaks-panel.jsx` — componentes
