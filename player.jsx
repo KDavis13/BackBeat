@@ -382,13 +382,25 @@ function usePlayerEngine(song, onomaItems, tweaks) {
 
 /** Sidebar — section + phrase navigation. */
 function SectionSidebar({ song, eng }) {
+  // Keep the playing section visible as playback advances. `block: 'nearest'`
+  // only scrolls if the active item is outside the viewport, so it doesn't
+  // fight the user when they scroll manually.
+  const activeRef = React.useRef(null);
+  const listRef = React.useRef(null);
+  React.useEffect(() => {
+    const el = activeRef.current;
+    if (!el) return;
+    if (typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [eng.sectionIdx]);
   return (
     <aside className="pl-sidebar">
       <div className="pl-sidebar-head">
         <span className="label">Estructura</span>
         <span className="num-mono pl-sidebar-count">{song.sections.length}</span>
       </div>
-      <div className="pl-sidebar-list">
+      <div className="pl-sidebar-list" ref={listRef}>
         {song.sections.map((s, i) => {
           const color = window.BBData.getColor(s.color || 'orange');
           const isCur = i === eng.sectionIdx;
@@ -397,6 +409,7 @@ function SectionSidebar({ song, eng }) {
           const phrases = s.phrases || [{ id: 'legacy', bars: s.bars || 0, repeat: 1 }];
           return (
             <div key={s.id}
+                 ref={isCur ? activeRef : null}
                  className={`pl-sec${isCur ? ' on' : ''}${isDone ? ' done' : ''}`}
                  style={{ '--c-ink': color.ink, '--c-tint': color.tint, '--c-border': color.border }}>
               <button className="pl-sec-main" onClick={() => eng.jumpToSection(i)}>
@@ -517,6 +530,14 @@ function OnomaOverlay({ onoma, currentStep, beatsPerBar, label }) {
  *  marked. Used in the right panel of the Player. */
 function PhraseProgress({ section, eng }) {
   const phrases = section?.phrases || [];
+  // Keep the current phrase in view when many phrases stack vertically.
+  const activeRef = React.useRef(null);
+  React.useEffect(() => {
+    const el = activeRef.current;
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [eng.sectionIdx, eng.phraseIdx]);
   return (
     <div className="pp-list">
       {phrases.map((p, pi) => {
@@ -525,6 +546,7 @@ function PhraseProgress({ section, eng }) {
         const letter = String.fromCharCode(65 + pi);
         return (
           <div key={p.id || pi}
+               ref={isCurPhrase ? activeRef : null}
                className={`pp-phr${isCurPhrase ? ' on' : ''}${isDonePhrase ? ' done' : ''}`}>
             <div className="pp-phr-head">
               <span className="pp-phr-letter">{letter}</span>
