@@ -130,7 +130,7 @@
   padding: 8px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
 }
@@ -161,10 +161,13 @@
   text-align: left;
   cursor: pointer;
   color: inherit;
-  padding: 10px 12px;
+  padding: 8px 12px;
   gap: 10px;
   align-items: stretch;
 }
+/* Keep the list compact: only the playing section unfolds its phrases
+ * and per-iteration bar grid. Headers stay clickable for jumping. */
+.pl-sec:not(.on) .pl-sec-phrases { display: none; }
 .pl-sec-stripe {
   width: 3px;
   align-self: stretch;

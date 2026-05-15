@@ -3,7 +3,7 @@
 //
 // Bump CACHE_NAME on each release to invalidate older caches.
 
-const CACHE_NAME = 'backbeat-v5';
+const CACHE_NAME = 'backbeat-v6';
 const PRECACHE = [
   './',
   './index.html',
