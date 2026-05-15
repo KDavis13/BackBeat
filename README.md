@@ -25,12 +25,21 @@ npx serve .
 
 Canciones y onomatopeyas se guardan en `localStorage` (claves `backbeat.songs.v3`, `backbeat.onoma.v3`). El botón de exportar bajará un JSON con todo.
 
+## PWA
+
+`manifest.webmanifest` + `sw.js` la hacen instalable y offline-first. Tras la primera carga sobre HTTPS, el service worker cachea los assets y la app arranca sin conexión.
+
+Para instalar en iPhone necesitas servir sobre **HTTPS** (GitHub Pages, Cloudflare Pages, Netlify Drop, etc.). Desde `localhost` el SW funciona para probar pero iOS no te dejará añadirla a la pantalla de inicio.
+
+Durante la reproducción, el **Screen Wake Lock** mantiene la pantalla encendida (iOS 16.4+ Safari y Chrome/Edge). Se libera al pausar o salir del Player.
+
 ## Stack
 
 - React 18 + ReactDOM (UMD, vía CDN)
 - Babel standalone (transforma JSX en el navegador)
 - Web Audio API para metrónomo y percusión sintetizada
 - SpeechSynthesis API para los avisos de voz
+- Service Worker + Manifest para instalación PWA
 
 ## Estructura
 

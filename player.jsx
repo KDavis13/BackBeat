@@ -264,6 +264,36 @@ function usePlayerEngine(song, onomaItems, tweaks) {
     return () => cancelAnimationFrame(raf);
   }, [state.running]);
 
+  // Screen Wake Lock — keep the phone awake while playing. iOS 16.4+ Safari,
+  // Chrome / Edge. Silently no-ops on older browsers. The lock is released
+  // by the system when the tab is hidden; reacquire on visibilitychange.
+  React.useEffect(() => {
+    let lock = null;
+    let cancelled = false;
+    const acquire = async () => {
+      if (!('wakeLock' in navigator)) return;
+      try {
+        const l = await navigator.wakeLock.request('screen');
+        if (cancelled) { l.release().catch(() => {}); return; }
+        lock = l;
+        l.addEventListener('release', () => { if (lock === l) lock = null; });
+      } catch (e) { /* permission denied or not supported */ }
+    };
+    const release = () => {
+      if (lock) { lock.release().catch(() => {}); lock = null; }
+    };
+    const onVis = () => {
+      if (document.visibilityState === 'visible' && state.running) acquire();
+    };
+    if (state.running) acquire();
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', onVis);
+      release();
+    };
+  }, [state.running]);
+
   const resetRefs = () => {
     endCueTtsRef.current = -1;
     fillFiredRef.current = '';

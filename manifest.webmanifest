@@ -1,0 +1,18 @@
+{
+  "name": "BackBeat",
+  "short_name": "BackBeat",
+  "description": "Guía para baterías: metrónomo, conteo de compases y avisos de fills.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#0d0b08",
+  "background_color": "#0d0b08",
+  "lang": "es",
+  "categories": ["music", "productivity"],
+  "icons": [
+    { "src": "icon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any" },
+    { "src": "icon.svg", "type": "image/svg+xml", "sizes": "192x192", "purpose": "maskable" },
+    { "src": "icon.svg", "type": "image/svg+xml", "sizes": "512x512", "purpose": "maskable" }
+  ]
+}
