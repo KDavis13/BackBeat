@@ -439,6 +439,16 @@
   line-height: 1;
   text-wrap: balance;
 }
+.player-now.countin .player-now-name {
+  font-size: clamp(96px, 18vw, 200px);
+  color: var(--accent);
+  text-align: center;
+  line-height: 0.9;
+}
+.player-now.countin .player-now-label {
+  color: var(--accent);
+  letter-spacing: 0.16em;
+}
 .player-now-bars {
   display: flex;
   align-items: baseline;

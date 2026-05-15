@@ -8,7 +8,8 @@
  * synced syllable overlay.
  */
 
-function usePlayerEngine(song, onomaItems) {
+function usePlayerEngine(song, onomaItems, tweaks) {
+  const countIn = Math.max(0, Math.min(4, Number(tweaks?.countIn ?? 0)));
   const initial = () => ({
     running: false,
     sectionIdx: 0,
@@ -18,6 +19,8 @@ function usePlayerEngine(song, onomaItems) {
     totalBeat: 0,
     barsLeft: 0,
     cueActive: false,
+    countingIn: false,
+    countInBarsLeft: 0,
     onomaActive: false,
     onomaId: null,
     onomaStep: -1,
@@ -26,10 +29,13 @@ function usePlayerEngine(song, onomaItems) {
   const [bpm, setBpm] = React.useState(song.bpm);
   const metroRef = React.useRef(null);
   const phaseRef = React.useRef({ lastTime: 0, beatDur: 0 });
-  const ttsFiredRef = React.useRef(-1);
+  const ttsFiredRef = React.useRef(new Set()); // unique trigger keys we've already announced
   const onomaScheduledRef = React.useRef(-1);          // sectionIdx for which onoma hits were scheduled
   const onomaBarStartRef = React.useRef(0);            // audio time of onoma bar start
   const beatPhaseRef = React.useRef(0);
+  // true until the song has actually started — used to apply count-in only
+  // on the first play / after a restart, not when resuming from pause.
+  const freshStartRef = React.useRef(true);
   const [, forceRender] = React.useState(0);
 
   const schedule = React.useMemo(() => {
@@ -48,21 +54,60 @@ function usePlayerEngine(song, onomaItems) {
 
   React.useEffect(() => { setBpm(song.bpm); }, [song.id]);
 
+  // Absolute quarter-note beat indices to play with the sharper "accentStrong"
+  // click — every quarter beat inside any section's last `leadBars` bars.
+  const accentBeatSet = React.useMemo(() => {
+    const acc = new Set();
+    let absBeat = 0;
+    song.sections.forEach((s) => {
+      const lead = s.endCue?.leadBars ?? 2;
+      const startBar = Math.max(0, s.bars - lead);
+      for (let b = startBar; b < s.bars; b++) {
+        for (let q = 0; q < song.beatsPerBar; q++) {
+          acc.add(absBeat + b * song.beatsPerBar + q);
+        }
+      }
+      absBeat += s.bars * song.beatsPerBar;
+    });
+    return acc;
+  }, [song]);
+
   React.useEffect(() => {
     const m = new window.Metronome();
     metroRef.current = m;
     m.setBeatsPerBar(song.beatsPerBar);
     m.setSubdivision(song.subdivision || 1);
     m.setBpm(bpm);
+    m.setAccentBeats(accentBeatSet);
+    ttsFiredRef.current = new Set();
+    freshStartRef.current = true;
 
     const unsub = m.subscribe((ev) => {
       if (ev.type !== 'beat') return;
       const totalSub = ev.sub;
       const totalBeat = ev.beat;
       const totalBarNum = Math.floor(totalBeat / song.beatsPerBar);
-      const beatInBar = totalBeat % song.beatsPerBar;
       const subOfBeat = ev.subOfBeat;
       if (totalBarNum >= totalBars) { m.stop(); setState((s) => ({ ...s, running: false })); return; }
+
+      // Count-in phase: totalBeat is negative. Tick the metronome, show the
+      // remaining bars in the player-now, but don't touch any section state.
+      if (totalBarNum < 0) {
+        const countInBarsLeft = -totalBarNum;
+        const ciBeatInBar = ((totalBeat % song.beatsPerBar) + song.beatsPerBar) % song.beatsPerBar;
+        phaseRef.current.lastTime = performance.now();
+        phaseRef.current.beatDur = (60 / m.bpm) * 1000;
+        setState({
+          running: true, countingIn: true, countInBarsLeft,
+          sectionIdx: 0, barInSection: 0, beatInBar: ciBeatInBar, subOfBeat,
+          totalBeat, barsLeft: song.sections[0].bars - 1,
+          cueActive: false, accent: false,
+          onomaActive: false, onomaId: null, onomaStep: -1,
+        });
+        return;
+      }
+      freshStartRef.current = false;
+      const beatInBar = totalBeat % song.beatsPerBar;
       const { sectionIdx, barInSection } = schedule[totalBarNum];
       const section = song.sections[sectionIdx];
       const barsLeft = section.bars - barInSection - 1;
@@ -82,18 +127,36 @@ function usePlayerEngine(song, onomaItems) {
       }
       const subdivision = m.subdivision;
 
-      // accent quarter beats during cue zone
+      // accent quarter beats during cue zone (drives BeatViz color)
       const accent = cueActive && ev.isQuarter;
 
-      // TTS — fire on entering cue zone (first beat of cue zone, once per section)
-      if (cueActive && ev.isQuarter && beatInBar === 0
-          && ttsFiredRef.current !== sectionIdx) {
-        ttsFiredRef.current = sectionIdx;
-        if (section.endCue?.say) m.say(section.endCue.say);
+      // TTS fires at the moment of action, not as a pre-warning. The audible
+      // pre-warning is the metronome pitching up on the cue zone's accentBeats;
+      // the visual cues do the rest.
+      //   'change' say (e.g. "estrofa") — first beat of the section it names.
+      //   'fill' / 'stop' say          — first beat of the last bar of the
+      //                                   current section (when it begins).
+      if (ev.isQuarter && beatInBar === 0) {
+        if (barInSection === 0 && sectionIdx > 0) {
+          const prev = song.sections[sectionIdx - 1];
+          const key = `change:${sectionIdx}`;
+          if (prev?.endCue?.type === 'change' && prev.endCue.say
+              && !ttsFiredRef.current.has(key)) {
+            ttsFiredRef.current.add(key);
+            m.say(prev.endCue.say);
+          }
+        }
+        if (barsLeft === 0 && section.endCue?.say
+            && section.endCue.type === 'fill') {
+          const key = `last:${sectionIdx}`;
+          if (!ttsFiredRef.current.has(key)) {
+            ttsFiredRef.current.add(key);
+            m.say(section.endCue.say);
+          }
+        }
       }
-      if (!cueActive) {
-        if (ttsFiredRef.current === sectionIdx) ttsFiredRef.current = -1;
-        if (onomaScheduledRef.current === sectionIdx) onomaScheduledRef.current = -1;
+      if (!cueActive && onomaScheduledRef.current === sectionIdx) {
+        onomaScheduledRef.current = -1;
       }
 
       // Onomatopoeia — when entering the LAST bar of a section with one,
@@ -125,6 +188,7 @@ function usePlayerEngine(song, onomaItems) {
 
       setState({
         running: true,
+        countingIn: false, countInBarsLeft: 0,
         sectionIdx, barInSection, beatInBar, subOfBeat,
         totalBeat, barsLeft, cueActive, accent,
         onomaActive, onomaId: onoma?.id || null, onomaStep,
@@ -156,9 +220,13 @@ function usePlayerEngine(song, onomaItems) {
 
   const play = async () => {
     if (!metroRef.current) return;
+    // Count-in only on the very first play of a fresh / restarted session.
+    const wantCountIn = freshStartRef.current && countIn > 0 && state.totalBeat === 0;
+    const startBeat = wantCountIn ? -countIn * song.beatsPerBar : state.totalBeat;
+    const subdivision = startBeat < 0 ? 1 : (song.subdivision || 1);
     await metroRef.current.start({
-      bpm, beatsPerBar: song.beatsPerBar, subdivision: song.subdivision || 1,
-      startBeat: state.totalBeat,
+      bpm, beatsPerBar: song.beatsPerBar, subdivision,
+      startBeat,
     });
     setState((s) => ({ ...s, running: true }));
   };
@@ -169,25 +237,30 @@ function usePlayerEngine(song, onomaItems) {
   };
   const restart = async () => {
     pause();
-    ttsFiredRef.current = -1;
+    ttsFiredRef.current = new Set();
     onomaScheduledRef.current = -1;
+    freshStartRef.current = true;
     setState({
-      running: false, sectionIdx: 0, barInSection: 0, beatInBar: 0, subOfBeat: 0,
+      running: false, countingIn: false, countInBarsLeft: 0,
+      sectionIdx: 0, barInSection: 0, beatInBar: 0, subOfBeat: 0,
       totalBeat: 0, barsLeft: 0, cueActive: false, accent: false,
       onomaActive: false, onomaId: null, onomaStep: -1,
     });
     await new Promise((r) => setTimeout(r, 60));
+    const startBeat = countIn > 0 ? -countIn * song.beatsPerBar : 0;
+    const subdivision = startBeat < 0 ? 1 : (song.subdivision || 1);
     await metroRef.current.start({
-      bpm, beatsPerBar: song.beatsPerBar, subdivision: song.subdivision || 1,
-      startBeat: 0,
+      bpm, beatsPerBar: song.beatsPerBar, subdivision,
+      startBeat,
     });
     setState((s) => ({ ...s, running: true }));
   };
   const jumpToBar = async (totalBarNum) => {
     const wasRunning = state.running;
     if (metroRef.current) metroRef.current.stop();
-    ttsFiredRef.current = -1;
+    ttsFiredRef.current = new Set();
     onomaScheduledRef.current = -1;
+    freshStartRef.current = false;
     const startBeat = totalBarNum * song.beatsPerBar;
     const { sectionIdx, barInSection } = schedule[totalBarNum] || { sectionIdx: 0, barInSection: 0 };
     setState((s) => ({
@@ -313,7 +386,7 @@ function OnomaOverlay({ onoma, currentStep, beatsPerBar }) {
 }
 
 function Player({ song, onomaItems, onBack, tweaks }) {
-  const eng = usePlayerEngine(song, onomaItems);
+  const eng = usePlayerEngine(song, onomaItems, tweaks);
   const beatViz = tweaks?.beatViz || 'dots';
   const cueMode = tweaks?.cueMode || 'banner';
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
@@ -388,18 +461,32 @@ function Player({ song, onomaItems, onBack, tweaks }) {
 
         <div className="player-main">
           <div className="player-grid">
-            <div className="player-now">
-              <div className="player-now-label">
-                <span className="player-now-dot" style={{ background: sectionColor.ink }} />
-                AHORA · sección {eng.sectionIdx + 1}/{song.sections.length}
-              </div>
-              <div className="player-now-name">{eng.section.name}</div>
-              <div className="player-now-bars">
-                <span className="num-mono player-now-cur">{eng.barInSection + 1}</span>
-                <span className="player-now-slash">/</span>
-                <span className="num-mono player-now-tot">{eng.section.bars}</span>
-                <span className="player-now-unit">compases</span>
-              </div>
+            <div className={`player-now${eng.countingIn ? ' countin' : ''}`}>
+              {eng.countingIn ? (
+                <>
+                  <div className="player-now-label">CUENTA DE ENTRADA</div>
+                  <div className="player-now-name num-mono">{eng.countInBarsLeft}</div>
+                  <div className="player-now-bars">
+                    <span className="player-now-unit">
+                      {eng.countInBarsLeft === 1 ? 'compás para empezar' : 'compases para empezar'}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="player-now-label">
+                    <span className="player-now-dot" style={{ background: sectionColor.ink }} />
+                    AHORA · sección {eng.sectionIdx + 1}/{song.sections.length}
+                  </div>
+                  <div className="player-now-name">{eng.section.name}</div>
+                  <div className="player-now-bars">
+                    <span className="num-mono player-now-cur">{eng.barInSection + 1}</span>
+                    <span className="player-now-slash">/</span>
+                    <span className="num-mono player-now-tot">{eng.section.bars}</span>
+                    <span className="player-now-unit">compases</span>
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="player-viz">
@@ -413,7 +500,21 @@ function Player({ song, onomaItems, onBack, tweaks }) {
               )}
             </div>
 
-            <div className={`player-next${nextGlow ? ' glow' : ''}${eng.cueActive ? ' active' : ''}`}>
+            <div className={`player-next${nextGlow && !eng.countingIn ? ' glow' : ''}${eng.cueActive && !eng.countingIn ? ' active' : ''}`}>
+              {eng.countingIn ? (
+                <>
+                  <div className="player-next-label">
+                    EMPIEZA EN
+                    <span className="player-next-countdown num-mono">
+                      {eng.countInBarsLeft} {eng.countInBarsLeft === 1 ? 'compás' : 'compases'}
+                    </span>
+                  </div>
+                  <div className="player-next-name">{song.sections[0].name}</div>
+                  <div className="player-next-meta">
+                    <span className="num-mono">{song.sections[0].bars} compases</span>
+                  </div>
+                </>
+              ) : (<>
               <div className="player-next-label">
                 {eng.cueActive ? 'EN' : 'PRÓXIMO'}
                 {eng.cueActive && (
@@ -448,6 +549,7 @@ function Player({ song, onomaItems, onBack, tweaks }) {
                   </div>
                 </>
               )}
+              </>)}
             </div>
           </div>
 

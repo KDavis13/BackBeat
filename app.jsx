@@ -123,6 +123,18 @@ function App() {
             ]}
             onChange={(v) => setTweak('cueMode', v)} />
         </window.TweakSection>
+        <window.TweakSection label="Cuenta de entrada">
+          <window.TweakSelect label="Compases antes de empezar"
+            value={String(t.countIn ?? 0)}
+            options={[
+              { value: '0', label: 'Sin cuenta' },
+              { value: '1', label: '1 compás' },
+              { value: '2', label: '2 compases' },
+              { value: '3', label: '3 compases' },
+              { value: '4', label: '4 compases' },
+            ]}
+            onChange={(v) => setTweak('countIn', Number(v))} />
+        </window.TweakSection>
       </window.TweaksPanel>
     </div>
   );
