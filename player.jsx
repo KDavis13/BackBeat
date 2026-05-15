@@ -660,24 +660,6 @@ function Player({ song, onomaItems, onBack, tweaks }) {
                 <span className="num-mono player-now-tot">{sectionTotal}</span>
                 <span className="player-now-unit">compases</span>
               </div>
-              {eng.phrase && (
-                <div className={`player-now-phrase${eng.fillLeadActive && !eng.endCueActive ? ' active' : ''}`}>
-                  <span className="player-now-phrase-letter">{String.fromCharCode(65 + eng.phraseIdx)}</span>
-                  <span>
-                    {eng.phrase.name || 'frase'}
-                    <span className="player-now-phrase-sep"> · </span>
-                    rep <b className="num-mono">{eng.iterationIdx + 1}</b>/{eng.iterationCount}
-                    <span className="player-now-phrase-sep"> · </span>
-                    compás <b className="num-mono">{eng.barInIteration + 1}</b>/{eng.iterationBars}
-                  </span>
-                  {eng.fillLeadActive && !eng.endCueActive && (
-                    <span className="player-now-phrase-cue">
-                      FILL
-                      <span> en <b className="num-mono">{eng.fillBarsLeft + 1}</b></span>
-                    </span>
-                  )}
-                </div>
-              )}
               </>)}
             </div>
 
