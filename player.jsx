@@ -512,6 +512,58 @@ function OnomaOverlay({ onoma, currentStep, beatsPerBar, label }) {
   );
 }
 
+/** Current-section phrase progress — list of phrases with iteration dots
+ *  and the current iteration's bar grid; current bar pulses, fill bars are
+ *  marked. Used in the right panel of the Player. */
+function PhraseProgress({ section, eng }) {
+  const phrases = section?.phrases || [];
+  return (
+    <div className="pp-list">
+      {phrases.map((p, pi) => {
+        const isCurPhrase = pi === eng.phraseIdx;
+        const isDonePhrase = pi < eng.phraseIdx && eng.phraseIdx >= 0;
+        const letter = String.fromCharCode(65 + pi);
+        return (
+          <div key={p.id || pi}
+               className={`pp-phr${isCurPhrase ? ' on' : ''}${isDonePhrase ? ' done' : ''}`}>
+            <div className="pp-phr-head">
+              <span className="pp-phr-letter">{letter}</span>
+              <span className="pp-phr-name">{p.name || `frase ${letter}`}</span>
+              <span className="pp-phr-meta">{p.bars}×{p.repeat}</span>
+            </div>
+            {p.repeat > 1 && (
+              <div className="pp-iters">
+                {Array.from({ length: p.repeat }).map((_, iter) => {
+                  const isCurIter = isCurPhrase && iter === eng.iterationIdx;
+                  const isPastIter = isDonePhrase
+                    || (isCurPhrase && iter < eng.iterationIdx);
+                  return (
+                    <span key={iter}
+                          className={`pp-iter${isCurIter ? ' on' : ''}${isPastIter ? ' past' : ''}`} />
+                  );
+                })}
+              </div>
+            )}
+            {isCurPhrase && (
+              <div className="pp-bars" style={{ '--bars': p.bars }}>
+                {Array.from({ length: p.bars }).map((_, b) => {
+                  const isFillB = p.fill && b === p.bars - 1;
+                  const isCurBar = b === eng.barInIteration;
+                  const isPastBar = b < eng.barInIteration;
+                  return (
+                    <span key={b}
+                          className={`pp-bar${isCurBar ? ' on' : ''}${isPastBar ? ' played' : ''}${isFillB ? ' fill' : ''}`} />
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function Player({ song, onomaItems, onBack, tweaks }) {
   const eng = usePlayerEngine(song, onomaItems, tweaks);
   const beatViz = tweaks?.beatViz || 'dots';
@@ -642,7 +694,7 @@ function Player({ song, onomaItems, onBack, tweaks }) {
               )}
             </div>
 
-            <div className={`player-next${nextGlow && !eng.countingIn ? ' glow' : ''}${eng.endCueActive && !eng.countingIn ? ' active' : ''}`}>
+            <div className={`player-next${!eng.countingIn ? ' has-progress' : ''}${nextGlow && !eng.countingIn ? ' glow' : ''}${eng.endCueActive && !eng.countingIn ? ' active' : ''}`}>
               {eng.countingIn ? (<>
                 <div className="player-next-label">
                   EMPIEZA EN
@@ -655,37 +707,28 @@ function Player({ song, onomaItems, onBack, tweaks }) {
                   <span className="num-mono">{window.BBData.sectionBars(song.sections[0])} compases</span>
                 </div>
               </>) : (<>
-              <div className="player-next-label">
-                {eng.endCueActive ? 'EN' : 'PRÓXIMO'}
-                {eng.endCueActive && (
-                  <span className="player-next-countdown num-mono">
-                    {eng.barsLeftInSection + 1} {eng.barsLeftInSection === 0 ? 'compás' : 'compases'}
-                  </span>
-                )}
-              </div>
-              {eng.nextSection ? (
-                <>
-                  <div className="player-next-name">{eng.nextSection.name}</div>
-                  <div className="player-next-meta">
-                    <span className="num-mono">{window.BBData.sectionBars(eng.nextSection)} compases</span>
-                    {eng.section.endCue?.type === 'stop' && (
-                      <span className="player-next-pill stop">PARADA</span>
-                    )}
-                    {eng.section.endCue?.say && (
-                      <span className="player-next-say">"{eng.section.endCue.say}"</span>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="player-next-name dim">— fin de la canción —</div>
-                  {eng.section.endCue?.say && (
-                    <div className="player-next-meta">
-                      <span className="player-next-say">"{eng.section.endCue.say}"</span>
-                    </div>
+                <div className="pp-header">
+                  <span className="pp-header-section">{eng.section.name}</span>
+                  {eng.endCueActive && (
+                    <span className="player-next-countdown num-mono">
+                      {eng.barsLeftInSection + 1} {eng.barsLeftInSection === 0 ? 'compás' : 'compases'}
+                    </span>
                   )}
-                </>
-              )}
+                </div>
+                <PhraseProgress section={eng.section} eng={eng} />
+                <div className={`pp-footer${eng.nextSection ? '' : ' dim'}`}>
+                  <span className="pp-footer-label">PRÓXIMO</span>
+                  {eng.nextSection ? (
+                    <>
+                      <span className="pp-footer-name">{eng.nextSection.name}</span>
+                      <span className="pp-footer-bars">
+                        {window.BBData.sectionBars(eng.nextSection)} comp
+                      </span>
+                    </>
+                  ) : (
+                    <span className="pp-footer-name">fin de la canción</span>
+                  )}
+                </div>
               </>)}
             </div>
           </div>

@@ -541,6 +541,153 @@
 .player-next-pill.stop { background: rgba(248,113,113,.14); color: var(--danger); border: 1px solid rgba(248,113,113,.3); }
 .player-next-say { font-style: italic; color: var(--text); }
 
+/* ── Phrase progress (right panel, current section) ───────────── */
+.player-next.has-progress {
+  min-height: 0;
+  overflow: hidden;
+  gap: 12px;
+}
+.pp-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.pp-header-section {
+  color: var(--c-section, var(--accent));
+  font-size: 13px;
+}
+.pp-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.pp-list::-webkit-scrollbar { width: 8px; }
+.pp-list::-webkit-scrollbar-track { background: transparent; }
+.pp-list::-webkit-scrollbar-thumb { background: var(--border-strong); }
+.pp-list::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+.pp-phr {
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color .15s, background .15s, opacity .15s;
+}
+.pp-phr.on {
+  border-color: var(--c-section, var(--accent));
+  background: color-mix(in srgb, var(--c-section, var(--accent)) 10%, var(--bg-elev-2));
+}
+.pp-phr.done { opacity: .45; }
+
+.pp-phr-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+.pp-phr-letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px; height: 26px;
+  background: var(--bg-elev-3);
+  border: 1px solid var(--border-strong);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.pp-phr.on .pp-phr-letter {
+  background: var(--c-section, var(--accent));
+  color: #1a120a;
+  border-color: transparent;
+}
+.pp-phr-name { flex: 1; font-weight: 500; color: var(--text); }
+.pp-phr-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.pp-iters {
+  display: flex;
+  gap: 4px;
+}
+.pp-iter {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-elev-3);
+  border: 1px solid var(--border);
+  transition: background .15s, box-shadow .15s;
+}
+.pp-iter.past {
+  background: color-mix(in srgb, var(--c-section, var(--accent)) 35%, transparent);
+}
+.pp-iter.on {
+  background: var(--c-section, var(--accent));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--c-section, var(--accent)) 70%, transparent);
+}
+
+.pp-bars {
+  display: grid;
+  grid-template-columns: repeat(var(--bars), 1fr);
+  gap: 3px;
+}
+.pp-bar {
+  position: relative;
+  height: 12px;
+  background: var(--bg-elev-3);
+  border: 1px solid var(--border);
+  transition: background .12s, box-shadow .12s;
+}
+.pp-bar.played {
+  background: color-mix(in srgb, var(--c-section, var(--accent)) 30%, transparent);
+}
+.pp-bar.on {
+  background: var(--c-section, var(--accent));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--c-section, var(--accent)) 65%, transparent);
+}
+.pp-bar.fill {
+  border-color: var(--warn);
+  border-style: dashed;
+}
+.pp-bar.on.fill { box-shadow: 0 0 12px color-mix(in srgb, var(--warn) 60%, transparent); }
+
+.pp-footer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.pp-footer-label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 11px;
+}
+.pp-footer-name { font-weight: 600; color: var(--text); }
+.pp-footer-bars { color: var(--text-muted); font-family: var(--font-mono); }
+.pp-footer.dim .pp-footer-name { color: var(--text-muted); font-style: italic; }
+
 /* Big-numbers overlay */
 .big-numbers {
   position: absolute;

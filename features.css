@@ -131,7 +131,15 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
 }
+.pl-sidebar-list::-webkit-scrollbar { width: 8px; }
+.pl-sidebar-list::-webkit-scrollbar-track { background: transparent; }
+.pl-sidebar-list::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+}
+.pl-sidebar-list::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
 .pl-sec {
   background: var(--bg);
