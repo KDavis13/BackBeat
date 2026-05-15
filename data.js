@@ -1,17 +1,32 @@
-/* BackBeat — sample data + storage */
+/* BackBeat — data + storage + schedule helpers
+ *
+ * Schema v5 (current):
+ *   song.sections[i] = {
+ *     id, name, color, subdivision?,
+ *     phrases: [
+ *       {
+ *         id, name?,
+ *         bars: number,           // bars per iteration
+ *         repeat: number,         // how many times the phrase repeats
+ *         fill?: {                // optional fill on LAST bar of each iteration
+ *           onomatopoeiaIds: string[],   // rotates per iteration
+ *           sayText?: string,            // TTS at start of fill bar
+ *           singSyllables?: boolean,     // TTS joins the onoma's syllables
+ *           muteClick?: boolean,         // silence metronome on fill bar
+ *           leadBars?: number,           // visual countdown
+ *         }
+ *       }
+ *     ],
+ *     endCue?: { type, say, leadBars }   // transition voice/banner only
+ *   }
+ *   section.bars (legacy) is replaced by sum of phrase.bars * phrase.repeat.
+ */
 (function () {
   'use strict';
 
-  // An onomatopoeia is a 1-bar percussion pattern with synced syllables.
-  // - resolution: how many steps the bar is divided into (8, 12, 16, 24).
-  //   12 = triplets on 4/4. 16 = sixteenths on 4/4. 24 = 24th notes.
-  // - hits: array of { step (0..resolution-1), text, sound, velocity }
-  // Played at the song's BPM; spans exactly one bar of the song.
   const ONOMATOPOEIAS = [
     {
-      id: 'taka',
-      name: 'ta-ka-tum-pá',
-      resolution: 16,
+      id: 'taka', name: 'ta-ka-tum-pá', resolution: 16,
       hits: [
         { step: 0,  text: 'ta',  sound: 'tom-hi', velocity: 0.9 },
         { step: 2,  text: 'ka',  sound: 'tom-hi', velocity: 0.7 },
@@ -22,9 +37,7 @@
       ],
     },
     {
-      id: 'roll',
-      name: 'redoble 16th',
-      resolution: 16,
+      id: 'roll', name: 'redoble 16th', resolution: 16,
       hits: Array.from({ length: 16 }).map((_, i) => ({
         step: i,
         text: i % 4 === 0 ? 'TA' : 'ta',
@@ -33,9 +46,7 @@
       })),
     },
     {
-      id: 'tripA',
-      name: 'tum-pa-tá (tresillos)',
-      resolution: 12,
+      id: 'tripA', name: 'tum-pa-tá (tresillos)', resolution: 12,
       hits: [
         { step: 0,  text: 'tum', sound: 'kick',  velocity: 1.0 },
         { step: 4,  text: 'pa',  sound: 'tom-hi', velocity: 0.7 },
@@ -45,86 +56,194 @@
       ],
     },
     {
-      id: 'pumpum',
-      name: 'pum-pum-pa',
-      resolution: 16,
+      id: 'pumpum', name: 'pum-pum-pa', resolution: 16,
       hits: [
         { step: 0,  text: 'pum', sound: 'kick',  velocity: 1.0 },
         { step: 4,  text: 'pum', sound: 'kick',  velocity: 1.0 },
         { step: 8,  text: 'pa',  sound: 'snare', velocity: 1.0 },
-        { step: 12, text: '', sound: '', velocity: 0 },
-      ].filter((h) => h.sound),
+      ],
     },
   ];
 
+  function uid() { return 's_' + Math.random().toString(36).slice(2, 9); }
+
   const SONGS = [
     {
-      id: 'smoke',
-      title: 'Smoke on the Water',
-      artist: 'Deep Purple',
-      bpm: 112,
-      beatsPerBar: 4,
-      subdivision: 1,
+      id: 'smoke', title: 'Smoke on the Water', artist: 'Deep Purple',
+      bpm: 112, beatsPerBar: 4, subdivision: 1,
       sections: [
-        { id: 's1', name: 'Intro riff',  bars: 4, color: 'orange',
-          endCue: { type: 'change', say: 'estrofa', leadBars: 2 } },
-        { id: 's2', name: 'Estrofa',     bars: 8, color: 'gold',
-          endCue: { type: 'change', say: 'estribillo', leadBars: 2 } },
-        { id: 's3', name: 'Estribillo',  bars: 8, color: 'coral', subdivision: 2,
-          endCue: { type: 'fill', say: 'ta-ka-tum-pá', onomatopoeiaId: 'taka', leadBars: 1 } },
-        { id: 's4', name: 'Solo',        bars: 16, color: 'magenta', subdivision: 4,
-          endCue: { type: 'change', say: 'outro', leadBars: 2 } },
-        { id: 's5', name: 'Outro',       bars: 4, color: 'lime',
-          endCue: { type: 'stop', say: 'para', leadBars: 1 } },
+        {
+          id: 's1', name: 'Intro riff', color: 'orange',
+          phrases: [{ id: 'p1', bars: 4, repeat: 1 }],
+          endCue: { type: 'change', say: 'estrofa', leadBars: 2 },
+        },
+        {
+          id: 's2', name: 'Estrofa', color: 'gold',
+          phrases: [
+            { id: 'p1', name: 'pregunta', bars: 4, repeat: 3,
+              fill: { onomatopoeiaIds: ['taka'], sayText: '',
+                      singSyllables: false, muteClick: true, leadBars: 1 } },
+            { id: 'p2', name: 'respuesta', bars: 4, repeat: 1,
+              fill: { onomatopoeiaIds: ['roll'], sayText: 'ataca',
+                      singSyllables: false, muteClick: true, leadBars: 1 } },
+          ],
+          endCue: { type: 'change', say: 'estribillo', leadBars: 2 },
+        },
+        {
+          id: 's3', name: 'Estribillo', color: 'coral', subdivision: 2,
+          phrases: [
+            { id: 'p1', bars: 8, repeat: 1,
+              fill: { onomatopoeiaIds: ['taka'], sayText: '',
+                      singSyllables: true, muteClick: true, leadBars: 1 } },
+          ],
+          endCue: { type: 'change', say: 'solo', leadBars: 2 },
+        },
+        {
+          id: 's4', name: 'Solo', color: 'magenta', subdivision: 4,
+          phrases: [
+            { id: 'p1', bars: 8, repeat: 2,
+              fill: { onomatopoeiaIds: ['pumpum', 'roll'], sayText: '',
+                      singSyllables: false, muteClick: true, leadBars: 1 } },
+          ],
+          endCue: { type: 'change', say: 'outro', leadBars: 2 },
+        },
+        {
+          id: 's5', name: 'Outro', color: 'lime',
+          phrases: [{ id: 'p1', bars: 4, repeat: 1 }],
+          endCue: { type: 'stop', say: 'para', leadBars: 1 },
+        },
       ],
     },
     {
-      id: 'seven',
-      title: 'Seven Nation Army',
-      artist: 'The White Stripes',
-      bpm: 124,
-      beatsPerBar: 4,
-      subdivision: 1,
+      id: 'seven', title: 'Seven Nation Army', artist: 'The White Stripes',
+      bpm: 124, beatsPerBar: 4, subdivision: 1,
       sections: [
-        { id: 's1', name: 'Intro', bars: 8, color: 'orange',
+        { id: 's1', name: 'Intro', color: 'orange',
+          phrases: [{ id: 'p1', bars: 8, repeat: 1 }],
           endCue: { type: 'change', say: 'estrofa', leadBars: 2 } },
-        { id: 's2', name: 'Estrofa', bars: 16, color: 'gold', subdivision: 2,
-          endCue: { type: 'fill', say: 'pum-pum-pa', onomatopoeiaId: 'pumpum', leadBars: 1 } },
-        { id: 's3', name: 'Puente', bars: 8, color: 'magenta',
+        { id: 's2', name: 'Estrofa', color: 'gold', subdivision: 2,
+          phrases: [
+            { id: 'p1', bars: 4, repeat: 4,
+              fill: { onomatopoeiaIds: ['pumpum'], sayText: '',
+                      singSyllables: false, muteClick: true, leadBars: 1 } },
+          ],
+          endCue: { type: 'change', say: 'puente', leadBars: 2 } },
+        { id: 's3', name: 'Puente', color: 'magenta',
+          phrases: [{ id: 'p1', bars: 8, repeat: 1 }],
           endCue: { type: 'change', say: 'estribillo', leadBars: 2 } },
-        { id: 's4', name: 'Estribillo', bars: 16, color: 'coral',
+        { id: 's4', name: 'Estribillo', color: 'coral',
+          phrases: [{ id: 'p1', bars: 16, repeat: 1 }],
           endCue: { type: 'stop', say: 'corta', leadBars: 1 } },
       ],
     },
     {
-      id: 'beat',
-      title: 'Practice — 100 BPM',
-      artist: 'Rutina',
-      bpm: 100,
-      beatsPerBar: 4,
-      subdivision: 2,
+      id: 'beat', title: 'Practice — 100 BPM', artist: 'Rutina',
+      bpm: 100, beatsPerBar: 4, subdivision: 2,
       sections: [
-        { id: 's1', name: 'Calentamiento', bars: 8, color: 'orange', subdivision: 1,
+        { id: 's1', name: 'Calentamiento', color: 'orange', subdivision: 1,
+          phrases: [{ id: 'p1', bars: 8, repeat: 1 }],
           endCue: { type: 'change', say: 'sube tempo', leadBars: 2 } },
-        { id: 's2', name: 'Groove A', bars: 16, color: 'gold', subdivision: 2,
-          endCue: { type: 'fill', say: 'tum-pa-tá', onomatopoeiaId: 'tripA', leadBars: 1 } },
-        { id: 's3', name: 'Groove B', bars: 16, color: 'coral', subdivision: 4,
+        { id: 's2', name: 'Groove A', color: 'gold', subdivision: 2,
+          phrases: [
+            { id: 'p1', bars: 4, repeat: 4,
+              fill: { onomatopoeiaIds: ['tripA'], sayText: 'fill',
+                      singSyllables: false, muteClick: true, leadBars: 1 } },
+          ],
+          endCue: { type: 'change', say: 'groove b', leadBars: 2 } },
+        { id: 's3', name: 'Groove B', color: 'coral', subdivision: 4,
+          phrases: [
+            { id: 'p1', bars: 4, repeat: 4,
+              fill: { onomatopoeiaIds: ['taka', 'roll'], sayText: '',
+                      singSyllables: false, muteClick: true, leadBars: 1 } },
+          ],
           endCue: { type: 'stop', say: 'fin', leadBars: 1 } },
       ],
     },
   ];
 
-  const KEY_SONGS = 'backbeat.songs.v3';
-  const KEY_ONOMA = 'backbeat.onoma.v3';
+  const KEY_SONGS = 'backbeat.songs.v5';
+  const KEY_ONOMA = 'backbeat.onoma.v5';
+
+  function cueOnomaIds(cue) {
+    if (!cue) return [];
+    if (Array.isArray(cue.onomatopoeiaIds)) return cue.onomatopoeiaIds.filter(Boolean);
+    if (cue.onomatopoeiaId) return [cue.onomatopoeiaId];
+    return [];
+  }
+
+  /** Migrate a legacy section (v3/v4 schema with `bars` + optional `phrase`)
+   *  into the v5 schema with `phrases`. */
+  function migrateSection(s) {
+    if (s.phrases) return s;
+    const phrases = [];
+    const sb = s.bars || 4;
+    if (s.phrase) {
+      const phraseBars = s.phrase.bars;
+      const fullReps = Math.floor(sb / phraseBars);
+      const remainder = sb % phraseBars;
+      if (fullReps > 0) {
+        const oldCue = s.phrase.cue || {};
+        const fillIds = cueOnomaIds(oldCue);
+        phrases.push({
+          id: uid(),
+          bars: phraseBars,
+          repeat: fullReps,
+          fill: (fillIds.length || oldCue.say) ? {
+            onomatopoeiaIds: fillIds,
+            sayText: oldCue.say || '',
+            singSyllables: false,
+            muteClick: true,
+            leadBars: oldCue.leadBars || 1,
+          } : undefined,
+        });
+      }
+      if (remainder > 0) phrases.push({ id: uid(), bars: remainder, repeat: 1 });
+    } else {
+      phrases.push({ id: uid(), bars: sb, repeat: 1 });
+    }
+    // Legacy endCue with onomatopoeiaIds → merge into last phrase's fill.
+    const endIds = cueOnomaIds(s.endCue);
+    if (endIds.length > 0 && phrases.length) {
+      const last = phrases[phrases.length - 1];
+      const existing = last.fill?.onomatopoeiaIds || [];
+      last.fill = {
+        ...(last.fill || { singSyllables: false, muteClick: true, leadBars: 1 }),
+        onomatopoeiaIds: Array.from(new Set([...existing, ...endIds])),
+      };
+    }
+    return {
+      id: s.id, name: s.name, color: s.color, subdivision: s.subdivision,
+      phrases,
+      endCue: s.endCue ? {
+        type: s.endCue.type || 'change',
+        say: s.endCue.say || '',
+        leadBars: s.endCue.leadBars || 2,
+      } : undefined,
+    };
+  }
+  function migrateSong(s) {
+    if (!s || !s.sections) return s;
+    return { ...s, sections: s.sections.map(migrateSection) };
+  }
 
   function loadSongs() {
     try {
       const raw = localStorage.getItem(KEY_SONGS);
-      if (!raw) return SONGS.slice();
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed) || !parsed.length) return SONGS.slice();
-      // ensure backwards-compat fields
-      return parsed.map((s) => ({ subdivision: 1, ...s }));
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length) return parsed.map(migrateSong);
+      }
+      // Try migrating from any previous version
+      for (const key of ['backbeat.songs.v4', 'backbeat.songs.v3', 'backbeat.songs.v2', 'backbeat.songs.v1']) {
+        const v = localStorage.getItem(key);
+        if (v) {
+          try {
+            const parsed = JSON.parse(v);
+            if (Array.isArray(parsed) && parsed.length) return parsed.map(migrateSong);
+          } catch (e) {}
+        }
+      }
+      return SONGS.slice();
     } catch (e) { return SONGS.slice(); }
   }
   function saveSongs(songs) {
@@ -134,53 +253,114 @@
   function loadOnoma() {
     try {
       const raw = localStorage.getItem(KEY_ONOMA);
-      if (!raw) return ONOMATOPOEIAS.slice();
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return ONOMATOPOEIAS.slice();
-      return parsed;
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
+      for (const key of ['backbeat.onoma.v4', 'backbeat.onoma.v3', 'backbeat.onoma.v2']) {
+        const v = localStorage.getItem(key);
+        if (v) { try { const p = JSON.parse(v); if (Array.isArray(p)) return p; } catch (e) {} }
+      }
+      return ONOMATOPOEIAS.slice();
     } catch (e) { return ONOMATOPOEIAS.slice(); }
   }
   function saveOnoma(items) {
     try { localStorage.setItem(KEY_ONOMA, JSON.stringify(items)); } catch (e) {}
   }
 
-  function uid() { return 's_' + Math.random().toString(36).slice(2, 9); }
+  function sectionBars(s) {
+    if (!s) return 0;
+    if (s.phrases) return s.phrases.reduce((n, p) => n + p.bars * p.repeat, 0);
+    return s.bars || 0;
+  }
+  function totalBars(song) {
+    return song.sections.reduce((n, s) => n + sectionBars(s), 0);
+  }
 
+  function locate(song, totalBarIdx) {
+    let acc = 0;
+    for (let i = 0; i < song.sections.length; i++) {
+      const sb = sectionBars(song.sections[i]);
+      if (totalBarIdx < acc + sb) return { sectionIdx: i, barInSection: totalBarIdx - acc };
+      acc += sb;
+    }
+    return { sectionIdx: song.sections.length - 1, barInSection: 0 };
+  }
+  function sectionStartBar(song, sectionIdx) {
+    let acc = 0;
+    for (let i = 0; i < sectionIdx; i++) acc += sectionBars(song.sections[i]);
+    return acc;
+  }
+
+  /** Build a flat per-bar schedule. Each entry describes one bar of the song. */
+  function buildSchedule(song) {
+    const arr = [];
+    song.sections.forEach((s, sIdx) => {
+      let barInSection = 0;
+      const phrases = s.phrases || [{ id: 'legacy', bars: s.bars || 0, repeat: 1 }];
+      phrases.forEach((p, pIdx) => {
+        for (let iter = 0; iter < p.repeat; iter++) {
+          for (let b = 0; b < p.bars; b++) {
+            const isFillBar = (b === p.bars - 1) && !!p.fill;
+            arr.push({
+              sectionIdx: sIdx,
+              barInSection: barInSection++,
+              phraseIdx: pIdx,
+              phraseId: p.id,
+              iterationIdx: iter,
+              iterationCount: p.repeat,
+              barInIteration: b,
+              iterationBars: p.bars,
+              isFillBar,
+              fill: isFillBar ? p.fill : null,
+              // For the cue zone (leadBars before fill)
+              fillLeadActive: !!p.fill
+                && (b >= p.bars - (p.fill.leadBars || 1)),
+              fillBarsLeft: !p.fill ? -1 : (p.bars - 1 - b),
+            });
+          }
+        }
+      });
+    });
+    return arr;
+  }
+
+  function blankFill() {
+    return {
+      onomatopoeiaIds: [], sayText: '',
+      singSyllables: false, muteClick: true, leadBars: 1,
+    };
+  }
+  function blankPhrase() {
+    return { id: uid(), bars: 4, repeat: 4 };
+  }
   function blankSong() {
     return {
       id: uid(), title: 'Nueva canción', artist: '',
       bpm: 100, beatsPerBar: 4, subdivision: 1,
       sections: [
-        { id: uid(), name: 'Intro', bars: 4, color: 'orange',
+        { id: uid(), name: 'Intro', color: 'orange',
+          phrases: [{ id: uid(), bars: 4, repeat: 1 }],
           endCue: { type: 'change', say: 'estrofa', leadBars: 2 } },
       ],
     };
   }
-
   function blankOnoma() {
     return { id: uid(), name: 'Nuevo patrón', resolution: 16, hits: [] };
   }
 
-  function totalBars(song) { return song.sections.reduce((n, s) => n + s.bars, 0); }
-
-  // For a given total bar index, what's the section + bar in section?
-  function locate(song, totalBarIdx) {
-    let acc = 0;
-    for (let i = 0; i < song.sections.length; i++) {
-      const s = song.sections[i];
-      if (totalBarIdx < acc + s.bars) return { sectionIdx: i, barInSection: totalBarIdx - acc };
-      acc += s.bars;
-    }
-    return { sectionIdx: song.sections.length - 1, barInSection: 0 };
-  }
-  // Reverse: section idx → first total bar number.
-  function sectionStartBar(song, sectionIdx) {
-    let acc = 0;
-    for (let i = 0; i < sectionIdx; i++) acc += song.sections[i].bars;
-    return acc;
+  /** Deep clone with regenerated ids (for duplicate). */
+  function cloneWithIds(obj) {
+    const copy = JSON.parse(JSON.stringify(obj));
+    copy.id = uid();
+    if (copy.sections) copy.sections.forEach((s) => {
+      s.id = uid();
+      if (s.phrases) s.phrases.forEach((p) => { p.id = uid(); });
+    });
+    if (copy.phrases) copy.phrases.forEach((p) => { p.id = uid(); });
+    return copy;
   }
 
-  // List of palette colors a section can be tinted with. Orange-led warm set.
   const COLORS = {
     orange:  { ink: '#fb923c', tint: 'rgba(251,146,60,.14)',  border: 'rgba(251,146,60,.4)' },
     coral:   { ink: '#fb7185', tint: 'rgba(251,113,133,.14)', border: 'rgba(251,113,133,.4)' },
@@ -189,12 +369,14 @@
     lime:    { ink: '#a3e635', tint: 'rgba(163,230,53,.14)',  border: 'rgba(163,230,53,.4)' },
     violet:  { ink: '#c084fc', tint: 'rgba(192,132,252,.14)', border: 'rgba(192,132,252,.4)' },
   };
-  // Tolerant lookup — old-data color keys (cyan/indigo/etc.) fall back to orange.
   function getColor(key) { return COLORS[key] || COLORS.orange; }
 
   window.BBData = {
     loadSongs, saveSongs, loadOnoma, saveOnoma,
-    uid, blankSong, blankOnoma, totalBars, locate, sectionStartBar,
+    uid, blankSong, blankOnoma, blankPhrase, blankFill,
+    cloneWithIds,
+    sectionBars, totalBars, locate, sectionStartBar, buildSchedule,
+    cueOnomaIds,
     COLORS, getColor, SAMPLE: SONGS, SAMPLE_ONOMA: ONOMATOPOEIAS,
   };
 })();

@@ -572,3 +572,354 @@
 
 /* When the section list shows in the sheet, hide the topbar count etc. */
 .pl-sheet-panel .pl-sidebar-list { padding: 12px; }
+
+
+.ed-onoma-pos {
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  padding: 0 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ed-onoma-add { margin-top: 2px; }
+.ed-onoma-add .select { color: var(--text-muted); font-style: italic; }
+.ed-onoma-add .select:focus { color: var(--text); font-style: normal; }
+@media (max-width: 520px) {
+  .ed-onoma-row { grid-template-columns: 1fr; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .ed-onoma-row > .btn { width: fit-content; }
+}
+
+
+/* ── Onomatopoeia list picker (editor) ────────────────────── */
+.ed-onoma-list { display: flex; flex-direction: column; gap: 6px; }
+.ed-onoma-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) 2fr auto auto auto;
+  gap: 6px;
+  align-items: center;
+}
+.ed-onoma-pos {
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  padding: 0 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ed-onoma-add { margin-top: 2px; }
+.ed-onoma-add .select { color: var(--text-muted); font-style: italic; }
+.ed-onoma-add .select:focus { color: var(--text); font-style: normal; }
+@media (max-width: 520px) {
+  .ed-onoma-row { grid-template-columns: 1fr; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+}
+
+
+/* ── Section editor: phrase list + cards ────────────────────────────── */
+.ed-section-stats {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.ed-section-stats b { color: var(--text); font-weight: 600; }
+
+.ed-phrases-head {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.ed-phrase-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.ed-phrase-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ed-phrase-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ed-phrase-letter {
+  width: 26px; height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--c-tint, rgba(251,146,60,.14));
+  border: 1px solid var(--c-border, rgba(251,146,60,.4));
+  color: var(--c-ink, var(--accent));
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.ed-phrase-name { flex: 1; font-size: 14px; }
+.ed-phrase-card-tools { display: flex; gap: 4px; }
+
+.ed-phrase-card-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+.ed-phrase-stat { display: flex; flex-direction: column; flex: 0 0 auto; }
+.ed-phrase-stat .input { width: 84px; }
+.ed-phrase-times,
+.ed-phrase-eq {
+  font-size: 20px;
+  color: var(--text-muted);
+  padding-bottom: 9px;
+}
+.ed-phrase-total {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border-strong);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-ink, var(--accent));
+}
+
+.ed-phrase-preview {
+  display: grid;
+  grid-template-columns: repeat(var(--total, 16), minmax(0, 1fr));
+  gap: 2px;
+  position: relative;
+}
+.ed-phrase-bar {
+  position: relative;
+  height: 24px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-top: 2px solid transparent;
+}
+.ed-phrase-bar.start { border-top-color: var(--c-ink, var(--accent)); }
+.ed-phrase-bar.fill {
+  background: linear-gradient(180deg, transparent, rgba(251,146,60,.32));
+  border-color: rgba(251,146,60,.5);
+}
+.ed-phrase-bar-num {
+  position: absolute;
+  top: -14px;
+  left: 0;
+  color: var(--c-ink, var(--accent));
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.ed-phrase-fill-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding-top: 4px;
+  border-top: 1px dashed var(--border);
+}
+.ed-phrase-fill-toggle input { accent-color: var(--accent); }
+.ed-phrase-fill-toggle span { font-weight: 500; color: var(--text); }
+
+.ed-fill {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--c-ink, var(--accent));
+}
+.ed-fill-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+}
+.ed-fill-opt-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.ed-fill-opt-row .input { flex: 1; }
+.ed-fill-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-dim);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ed-fill-check input { accent-color: var(--accent); }
+.ed-fill-check span { color: var(--text); }
+
+.ed-add-phrase {
+  margin-top: 10px;
+  width: 100%;
+  justify-content: center;
+  padding: 10px;
+  color: var(--text-dim);
+  border-style: dashed;
+}
+
+/* ── Section editor: endCue ────────────────────────────────────────── */
+.ed-endcue {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.ed-endcue-head {
+  margin-bottom: 8px;
+}
+.ed-endcue-grid {
+  display: grid;
+  grid-template-columns: 220px 1fr 160px;
+  gap: 14px;
+}
+@media (max-width: 740px) { .ed-endcue-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 440px) { .ed-endcue-grid { grid-template-columns: 1fr; } }
+.label.sub {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+  color: var(--text-dim);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+/* ── Player sidebar: phrases + iterations ──────────────────────────── */
+.pl-sec-phrases {
+  padding: 0 10px 8px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pl-phr {
+  background: var(--bg-elev-2);
+  border-left: 2px solid transparent;
+}
+.pl-phr.on { border-left-color: var(--c-ink, var(--accent)); }
+.pl-phr-head {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  color: inherit;
+  padding: 6px 10px;
+  text-align: left;
+}
+.pl-phr-head:hover { background: var(--bg-elev-3); }
+.pl-phr-letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--c-ink, var(--accent));
+  background: var(--c-tint, rgba(251,146,60,.14));
+}
+.pl-phr-label { flex: 1; font-size: 12px; font-weight: 600; }
+.pl-phr-anon { color: var(--text-muted); font-weight: 400; }
+.pl-phr-meta {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pl-phr-fill-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: var(--accent);
+}
+
+.pl-phr-iters {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 10px 6px 30px;
+}
+.pl-iter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pl-iter-num {
+  font-size: 10px;
+  color: var(--text-muted);
+  min-width: 14px;
+  text-align: right;
+}
+.pl-iter.on .pl-iter-num { color: var(--c-ink, var(--accent)); font-weight: 700; }
+.pl-iter.past { opacity: .6; }
+.pl-iter-bars {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(var(--bars), minmax(0, 1fr));
+  gap: 2px;
+}
+
+/* ── Player AHORA: phrase indicator ────────────────────────────────── */
+.player-now-phrase {
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px 5px 5px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-dim);
+  width: fit-content;
+  flex-wrap: wrap;
+}
+.player-now-phrase.active {
+  background: rgba(251,146,60,.14);
+  border-color: rgba(251,146,60,.45);
+  color: var(--accent);
+}
+.player-now-phrase b { color: var(--text); }
+.player-now-phrase.active b { color: var(--accent); }
+.player-now-phrase-letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--c-section, var(--accent));
+  background: var(--bg);
+  border: 1px solid var(--c-section, var(--accent));
+}
+.player-now-phrase-sep { color: var(--text-muted); }
+.player-now-phrase-cue {
+  margin-left: 6px;
+  padding-left: 8px;
+  border-left: 1px solid currentColor;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}

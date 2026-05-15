@@ -43,8 +43,45 @@
       const AC = window.AudioContext || window.webkitAudioContext;
       this.ctx = new AC({ latencyHint: 'interactive' });
       this.master = this.ctx.createGain();
-      this.master.gain.value = 0.5;
+      this.master.gain.value = 1.0;
       this.master.connect(this.ctx.destination);
+      // Two separate buses so we can duck the metronome clicks during a fill
+      // without touching the percussion (onomatopoeia) volume.
+      this._clickGainValue = 0.5;
+      this.clickGain = this.ctx.createGain();
+      this.clickGain.gain.value = this._clickGainValue;
+      this.clickGain.connect(this.master);
+      this.percGain = this.ctx.createGain();
+      this.percGain.gain.value = 1.0;
+      this.percGain.connect(this.master);
+    }
+
+    /** Schedule a click-track duck over a window so the percussion / fill
+     *  pattern is the dominant sound. Call AT the start of the fill bar with
+     *  barDur seconds duration. */
+    duckClicks(barStartTime, barDur, { ducked = 0.08, fade = 0.05 } = {}) {
+      if (!this.clickGain) return;
+      const g = this.clickGain.gain;
+      const normal = this._clickGainValue;
+      const t0 = Math.max(this.ctx.currentTime, barStartTime - fade);
+      const t1 = barStartTime;
+      const t2 = barStartTime + barDur - fade;
+      const t3 = barStartTime + barDur;
+      try {
+        g.cancelScheduledValues(t0);
+        g.setValueAtTime(normal, t0);
+        g.linearRampToValueAtTime(ducked, t1);
+        g.setValueAtTime(ducked, t2);
+        g.linearRampToValueAtTime(normal, t3);
+      } catch (e) { /* fall back to mute */ }
+    }
+    /** Restore the click gain to normal immediately (call on stop / jump). */
+    unduckClicks() {
+      if (!this.clickGain) return;
+      try {
+        this.clickGain.gain.cancelScheduledValues(this.ctx.currentTime);
+        this.clickGain.gain.setValueAtTime(this._clickGainValue, this.ctx.currentTime);
+      } catch (e) {}
     }
 
     setBpm(bpm) { this.bpm = Math.max(20, Math.min(300, Number(bpm) || 100)); }
@@ -52,6 +89,22 @@
     setSubdivision(s) { this.subdivision = [1,2,3,4].includes(Number(s)) ? Number(s) : 1; }
     setSilent(v) { this._silent = !!v; }
     setAccentBeats(indices) { this._accentBeats = new Set(indices || []); }
+
+    /** Suppress the metronome click within [when, when+duration].
+     * Use when an onomatopoeia is playing — the percussion pattern needs to
+     * read cleanly without a click on top. */
+    suppressClick(when, duration) {
+      this._suppressRanges = this._suppressRanges || [];
+      this._suppressRanges.push({ from: when, to: when + duration });
+      if (this.ctx) {
+        const now = this.ctx.currentTime;
+        this._suppressRanges = this._suppressRanges.filter((r) => r.to > now - 0.5);
+      }
+    }
+    _isSuppressed(when) {
+      if (!this._suppressRanges || !this._suppressRanges.length) return false;
+      return this._suppressRanges.some((r) => when >= r.from && when < r.to);
+    }
 
     subscribe(fn) { this.subscribers.add(fn); return () => this.subscribers.delete(fn); }
     _emit(payload) {
@@ -106,6 +159,7 @@
     }
 
     _click(when, { isQuarter, accent, accentStrong, subOfBeat }) {
+      if (this._isSuppressed(when)) return;
       const ctx = this.ctx;
       const dur = 0.04;
 
@@ -122,7 +176,7 @@
       gain.gain.setValueAtTime(0.0001, when);
       gain.gain.exponentialRampToValueAtTime(base, when + 0.002);
       gain.gain.exponentialRampToValueAtTime(0.0001, when + dur);
-      osc.connect(gain).connect(this.master);
+      osc.connect(gain).connect(this.clickGain || this.master);
       osc.start(when);
       osc.stop(when + dur + 0.02);
 
@@ -137,7 +191,7 @@
         ng.gain.setValueAtTime(0.001, when);
         ng.gain.exponentialRampToValueAtTime(accentStrong ? 0.28 : 0.16, when + 0.001);
         ng.gain.exponentialRampToValueAtTime(0.0001, when + 0.025);
-        src.connect(filt).connect(ng).connect(this.master);
+        src.connect(filt).connect(ng).connect(this.clickGain || this.master);
         src.start(when);
         src.stop(when + 0.05);
       }
@@ -191,7 +245,7 @@
       gain.gain.setValueAtTime(0.0001, t);
       gain.gain.exponentialRampToValueAtTime(v * 0.9, t + 0.005);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
-      osc.connect(gain).connect(this.master);
+      osc.connect(gain).connect(this.percGain || this.master);
       osc.start(t); osc.stop(t + 0.3);
     }
     _synthSnare(t, v) {
@@ -205,7 +259,7 @@
       og.gain.setValueAtTime(0.0001, t);
       og.gain.exponentialRampToValueAtTime(v * 0.4, t + 0.003);
       og.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
-      osc.connect(og).connect(this.master);
+      osc.connect(og).connect(this.percGain || this.master);
       osc.start(t); osc.stop(t + 0.15);
       // noise
       const src = ctx.createBufferSource();
@@ -216,7 +270,7 @@
       ng.gain.setValueAtTime(0.0001, t);
       ng.gain.exponentialRampToValueAtTime(v * 0.6, t + 0.002);
       ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
-      src.connect(bp).connect(ng).connect(this.master);
+      src.connect(bp).connect(ng).connect(this.percGain || this.master);
       src.start(t); src.stop(t + 0.2);
     }
     _synthTom(t, v, freq) {
@@ -229,7 +283,7 @@
       gain.gain.setValueAtTime(0.0001, t);
       gain.gain.exponentialRampToValueAtTime(v * 0.7, t + 0.005);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
-      osc.connect(gain).connect(this.master);
+      osc.connect(gain).connect(this.percGain || this.master);
       osc.start(t); osc.stop(t + 0.35);
     }
     _synthHat(t, v) {
@@ -242,7 +296,7 @@
       gain.gain.setValueAtTime(0.0001, t);
       gain.gain.exponentialRampToValueAtTime(v * 0.35, t + 0.001);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
-      src.connect(hp).connect(gain).connect(this.master);
+      src.connect(hp).connect(gain).connect(this.percGain || this.master);
       src.start(t); src.stop(t + 0.08);
     }
   }

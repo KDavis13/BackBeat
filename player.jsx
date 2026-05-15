@@ -1,50 +1,50 @@
-/* Player — practice screen with section sidebar, subdivisions and
- * onomatopoeia playback.
+/* Player — practice screen with multi-phrase support.
  *
- * The metronome emits sub-events at the song's subdivision. We only "advance"
- * the per-bar state on quarter-note beats (isQuarter true). When we enter the
- * last bar of a section with an attached onomatopoeia, we schedule its
- * percussion hits at exact audio times and drive a step counter for the
- * synced syllable overlay.
+ * Schedule entries (built from data.buildSchedule):
+ *   { sectionIdx, barInSection, phraseIdx, iterationIdx, iterationCount,
+ *     barInIteration, iterationBars, isFillBar, fill, fillLeadActive, fillBarsLeft }
+ *
+ * On the fill bar of each iteration:
+ *   - Pick onoma from fill.onomatopoeiaIds[iterationIdx % length] (rotates per iter)
+ *   - Schedule percussion hits at exact audio times
+ *   - If fill.muteClick → suppress metronome clicks for that bar
+ *   - If fill.sayText → TTS the text (once)
+ *   - If fill.singSyllables → TTS the joined syllables from the active onoma
+ *
+ * Section endCue is independent — its `say` plays in the lead zone announcing
+ * the next section. It does NOT carry onomatopoeias anymore (those live on phrases).
  */
 
 function usePlayerEngine(song, onomaItems, tweaks) {
   const countIn = Math.max(0, Math.min(4, Number(tweaks?.countIn ?? 0)));
   const initial = () => ({
     running: false,
-    sectionIdx: 0,
-    barInSection: 0,
-    beatInBar: 0,
-    subOfBeat: 0,
+    countingIn: false, countInBarsLeft: 0,
+    sectionIdx: 0, barInSection: 0,
+    beatInBar: 0, subOfBeat: 0,
     totalBeat: 0,
-    barsLeft: 0,
-    cueActive: false,
-    countingIn: false,
-    countInBarsLeft: 0,
-    onomaActive: false,
-    onomaId: null,
-    onomaStep: -1,
+    barsLeftInSection: 0,
+    endCueActive: false,
+    accent: false,
+    phraseIdx: -1, iterationIdx: -1, iterationCount: 0,
+    barInIteration: 0, iterationBars: 0,
+    fillBarsLeft: -1, fillLeadActive: false,
+    isFillBar: false,
+    activeOnomaId: null,
+    activeOnomaStep: -1,
   });
   const [state, setState] = React.useState(initial);
   const [bpm, setBpm] = React.useState(song.bpm);
   const metroRef = React.useRef(null);
   const phaseRef = React.useRef({ lastTime: 0, beatDur: 0 });
-  const ttsFiredRef = React.useRef(new Set()); // unique trigger keys we've already announced
-  const onomaScheduledRef = React.useRef(-1);          // sectionIdx for which onoma hits were scheduled
-  const onomaBarStartRef = React.useRef(0);            // audio time of onoma bar start
+  const endCueTtsRef = React.useRef(-1);            // sectionIdx for which endCue TTS fired
+  const fillFiredRef = React.useRef('');            // last fill-bar key we scheduled
   const beatPhaseRef = React.useRef(0);
-  // true until the song has actually started — used to apply count-in only
-  // on the first play / after a restart, not when resuming from pause.
+  // true until the song has actually started (first non-count-in beat)
   const freshStartRef = React.useRef(true);
   const [, forceRender] = React.useState(0);
 
-  const schedule = React.useMemo(() => {
-    const arr = [];
-    song.sections.forEach((s, sIdx) => {
-      for (let b = 0; b < s.bars; b++) arr.push({ sectionIdx: sIdx, barInSection: b });
-    });
-    return arr;
-  }, [song]);
+  const schedule = React.useMemo(() => window.BBData.buildSchedule(song), [song]);
   const totalBars = schedule.length;
   const onomaById = React.useMemo(() => {
     const m = new Map();
@@ -52,25 +52,41 @@ function usePlayerEngine(song, onomaItems, tweaks) {
     return m;
   }, [onomaItems]);
 
-  React.useEffect(() => { setBpm(song.bpm); }, [song.id]);
+  // Section start bars (cached for jumping)
+  const sectionStartBars = React.useMemo(() => {
+    const out = [];
+    let acc = 0;
+    song.sections.forEach((s) => { out.push(acc); acc += window.BBData.sectionBars(s); });
+    return out;
+  }, [song]);
+  const sectionBarsLen = React.useMemo(
+    () => song.sections.map((s) => window.BBData.sectionBars(s)),
+    [song]);
 
-  // Absolute quarter-note beat indices to play with the sharper "accentStrong"
-  // click — every quarter beat inside any section's last `leadBars` bars.
+  // Absolute quarter-note beat indices that should be played with the sharper
+  // accentStrong click — every beat in any cue lead zone:
+  //   - phrase fill lead (last `fill.leadBars` bars of each iteration)
+  //   - section endCue lead (last `endCue.leadBars` bars of the section)
   const accentBeatSet = React.useMemo(() => {
     const acc = new Set();
-    let absBeat = 0;
-    song.sections.forEach((s) => {
-      const lead = s.endCue?.leadBars ?? 2;
-      const startBar = Math.max(0, s.bars - lead);
-      for (let b = startBar; b < s.bars; b++) {
+    let absBar = 0;
+    schedule.forEach((entry) => {
+      const section = song.sections[entry.sectionIdx];
+      const sectionTotal = sectionBarsLen[entry.sectionIdx];
+      const barsLeftInSection = sectionTotal - entry.barInSection - 1;
+      const endLead = section.endCue?.leadBars || 2;
+      const inEndCueLead = barsLeftInSection < endLead && !!section.endCue;
+      if (inEndCueLead || entry.fillLeadActive) {
         for (let q = 0; q < song.beatsPerBar; q++) {
-          acc.add(absBeat + b * song.beatsPerBar + q);
+          acc.add(absBar * song.beatsPerBar + q);
         }
       }
-      absBeat += s.bars * song.beatsPerBar;
+      absBar++;
     });
     return acc;
-  }, [song]);
+  }, [schedule, song, sectionBarsLen]);
+
+  React.useEffect(() => { setBpm(song.bpm); }, [song.id]);
 
   React.useEffect(() => {
     const m = new window.Metronome();
@@ -79,46 +95,50 @@ function usePlayerEngine(song, onomaItems, tweaks) {
     m.setSubdivision(song.subdivision || 1);
     m.setBpm(bpm);
     m.setAccentBeats(accentBeatSet);
-    ttsFiredRef.current = new Set();
     freshStartRef.current = true;
 
     const unsub = m.subscribe((ev) => {
       if (ev.type !== 'beat') return;
-      const totalSub = ev.sub;
       const totalBeat = ev.beat;
       const totalBarNum = Math.floor(totalBeat / song.beatsPerBar);
+      const beatInBar = totalBeat % song.beatsPerBar;
       const subOfBeat = ev.subOfBeat;
-      if (totalBarNum >= totalBars) { m.stop(); setState((s) => ({ ...s, running: false })); return; }
+      if (totalBarNum >= totalBars) {
+        m.stop();
+        setState((s) => ({ ...s, running: false }));
+        return;
+      }
 
-      // Count-in phase: totalBeat is negative. Tick the metronome, show the
-      // remaining bars in the player-now, but don't touch any section state.
+      // Count-in phase: totalBeat is negative. Tick the metronome (which
+      // plays clean clicks because nothing is in _accentBeats for negative
+      // beats), show remaining bars, but don't touch any section state.
       if (totalBarNum < 0) {
         const countInBarsLeft = -totalBarNum;
         const ciBeatInBar = ((totalBeat % song.beatsPerBar) + song.beatsPerBar) % song.beatsPerBar;
         phaseRef.current.lastTime = performance.now();
         phaseRef.current.beatDur = (60 / m.bpm) * 1000;
         setState({
-          running: true, countingIn: true, countInBarsLeft,
-          sectionIdx: 0, barInSection: 0, beatInBar: ciBeatInBar, subOfBeat,
-          totalBeat, barsLeft: song.sections[0].bars - 1,
-          cueActive: false, accent: false,
-          onomaActive: false, onomaId: null, onomaStep: -1,
+          ...initial(),
+          running: true,
+          countingIn: true,
+          countInBarsLeft,
+          totalBeat,
+          beatInBar: ciBeatInBar,
+          subOfBeat,
         });
         return;
       }
       freshStartRef.current = false;
-      const beatInBar = totalBeat % song.beatsPerBar;
-      const { sectionIdx, barInSection } = schedule[totalBarNum];
-      const section = song.sections[sectionIdx];
-      const barsLeft = section.bars - barInSection - 1;
-      const leadBars = section.endCue?.leadBars ?? 2;
-      const cueActive = barsLeft < leadBars;
+      const entry = schedule[totalBarNum];
+      const section = song.sections[entry.sectionIdx];
+      const sectionTotal = sectionBarsLen[entry.sectionIdx];
+      const barsLeftInSection = sectionTotal - entry.barInSection - 1;
+      const endCueLead = section.endCue?.leadBars || 2;
+      const endCueActive = barsLeftInSection < endCueLead && section.endCue;
 
-      // Per-section subdivision override. Realign the metronome at every
-      // quarter-beat boundary where the wanted subdivision differs from the
-      // current one. We just fired sub=0 of the current beat — the next event
-      // should be sub=1 under the new subdivision, one new-sub-duration later.
-      const wantedSub = (section.subdivision != null) ? section.subdivision : (song.subdivision || 1);
+      // Per-section subdivision override
+      const wantedSub = (section.subdivision != null)
+        ? section.subdivision : (song.subdivision || 1);
       if (ev.isQuarter && wantedSub !== m.subdivision) {
         const newSubDur = (60 / m.bpm) / wantedSub;
         m.subdivision = wantedSub;
@@ -126,61 +146,76 @@ function usePlayerEngine(song, onomaItems, tweaks) {
         m.nextTime = ev.time + newSubDur;
       }
       const subdivision = m.subdivision;
+      const accent = (endCueActive || entry.fillLeadActive) && ev.isQuarter;
 
-      // accent quarter beats during cue zone (drives BeatViz color)
-      const accent = cueActive && ev.isQuarter;
-
-      // TTS fires at the moment of action, not as a pre-warning. The audible
-      // pre-warning is the metronome pitching up on the cue zone's accentBeats;
-      // the visual cues do the rest.
-      //   'change' say (e.g. "estrofa") — first beat of the section it names.
-      //   'fill' / 'stop' say          — first beat of the last bar of the
-      //                                   current section (when it begins).
-      if (ev.isQuarter && beatInBar === 0) {
-        if (barInSection === 0 && sectionIdx > 0) {
-          const prev = song.sections[sectionIdx - 1];
-          const key = `change:${sectionIdx}`;
-          if (prev?.endCue?.type === 'change' && prev.endCue.say
-              && !ttsFiredRef.current.has(key)) {
-            ttsFiredRef.current.add(key);
-            m.say(prev.endCue.say);
-          }
-        }
-        if (barsLeft === 0 && section.endCue?.say
-            && section.endCue.type === 'fill') {
-          const key = `last:${sectionIdx}`;
-          if (!ttsFiredRef.current.has(key)) {
-            ttsFiredRef.current.add(key);
-            m.say(section.endCue.say);
-          }
+      // ── Fill bar firing ──────────────────────────────────────────────
+      // Pick the onoma for THIS iteration. If onomatopoeiaIds is empty,
+      // the fill still has other effects (sayText, muteClick) but no audio.
+      let activeOnoma = null;
+      if (entry.isFillBar && entry.fill) {
+        const ids = entry.fill.onomatopoeiaIds || [];
+        if (ids.length > 0) {
+          const pick = ids[entry.iterationIdx % ids.length];
+          activeOnoma = onomaById.get(pick) || null;
         }
       }
-      if (!cueActive && onomaScheduledRef.current === sectionIdx) {
-        onomaScheduledRef.current = -1;
-      }
 
-      // Onomatopoeia — when entering the LAST bar of a section with one,
-      // schedule its hits at exact audio times.
-      const onoma = section.endCue?.onomatopoeiaId ? onomaById.get(section.endCue.onomatopoeiaId) : null;
-      const isLastBar = barsLeft === 0;
-      if (cueActive && onoma && isLastBar && ev.isQuarter && beatInBar === 0
-          && onomaScheduledRef.current !== sectionIdx) {
-        onomaScheduledRef.current = sectionIdx;
-        onomaBarStartRef.current = ev.time;
+      const fillKey = entry.isFillBar
+        ? `${entry.sectionIdx}-${entry.phraseIdx}-${entry.iterationIdx}`
+        : '';
+
+      // Schedule perc + TTS + muteClick once at downbeat of the fill bar.
+      if (entry.isFillBar && entry.fill && ev.isQuarter && beatInBar === 0
+          && fillFiredRef.current !== fillKey) {
+        fillFiredRef.current = fillKey;
         const barDur = (60 / m.bpm) * song.beatsPerBar;
-        onoma.hits.forEach((h) => {
-          const offset = (h.step / onoma.resolution) * barDur;
-          m.schedulePerc(ev.time + offset, h.sound, h.velocity);
-        });
+        if (activeOnoma) {
+          activeOnoma.hits.forEach((h) => {
+            const offset = (h.step / activeOnoma.resolution) * barDur;
+            m.schedulePerc(ev.time + offset, h.sound, h.velocity);
+          });
+        }
+        if (entry.fill.muteClick !== false) {
+          m.suppressClick(ev.time - 0.005, barDur + 0.005);
+        }
+        // Voice cues at fill downbeat
+        if (entry.fill.sayText) {
+          m.say(entry.fill.sayText);
+        }
+        if (entry.fill.singSyllables && activeOnoma) {
+          const text = activeOnoma.hits
+            .slice().sort((a, b) => a.step - b.step)
+            .map((h) => h.text).filter(Boolean).join(' ');
+          if (text) m.say(text, { rate: 1.35 });
+        }
+      }
+      if (!entry.isFillBar && fillFiredRef.current) {
+        // moved past the fill bar — reset so re-entry (e.g. jump back) re-fires
+        fillFiredRef.current = '';
       }
 
-      // Update onoma step from current sub position within the bar (for UI)
-      let onomaStep = -1;
-      const onomaActive = !!onoma && isLastBar && cueActive;
-      if (onomaActive) {
+      // ── Section endCue TTS ─────────────────────────────────────────
+      // 'change' say (e.g. "estrofa") fires at the first beat of the section
+      //   it names — the audible pre-warning is the click pitching up during
+      //   the cue lead zone; the voice is the moment of action.
+      // 'stop' say is silent (no audio cue when the song just stops).
+      // Fill TTS (above) is independent and fires at the start of the fill bar.
+      if (ev.isQuarter && beatInBar === 0 && entry.barInSection === 0
+          && entry.sectionIdx > 0) {
+        const prev = song.sections[entry.sectionIdx - 1];
+        if (prev?.endCue?.type === 'change' && prev.endCue.say
+            && endCueTtsRef.current !== entry.sectionIdx) {
+          endCueTtsRef.current = entry.sectionIdx;
+          m.say(prev.endCue.say);
+        }
+      }
+
+      // Step tracking for the overlay
+      let activeOnomaStep = -1;
+      if (activeOnoma) {
         const subsInBar = subdivision * song.beatsPerBar;
         const subWithinBar = (beatInBar * subdivision) + subOfBeat;
-        onomaStep = Math.floor((subWithinBar / subsInBar) * onoma.resolution);
+        activeOnomaStep = Math.floor((subWithinBar / subsInBar) * activeOnoma.resolution);
       }
 
       phaseRef.current.lastTime = performance.now();
@@ -188,21 +223,32 @@ function usePlayerEngine(song, onomaItems, tweaks) {
 
       setState({
         running: true,
-        countingIn: false, countInBarsLeft: 0,
-        sectionIdx, barInSection, beatInBar, subOfBeat,
-        totalBeat, barsLeft, cueActive, accent,
-        onomaActive, onomaId: onoma?.id || null, onomaStep,
+        sectionIdx: entry.sectionIdx,
+        barInSection: entry.barInSection,
+        beatInBar, subOfBeat, totalBeat,
+        barsLeftInSection,
+        endCueActive, accent,
+        phraseIdx: entry.phraseIdx,
+        iterationIdx: entry.iterationIdx,
+        iterationCount: entry.iterationCount,
+        barInIteration: entry.barInIteration,
+        iterationBars: entry.iterationBars,
+        fillBarsLeft: entry.fillBarsLeft,
+        fillLeadActive: entry.fillLeadActive,
+        isFillBar: entry.isFillBar,
+        activeOnomaId: activeOnoma?.id || null,
+        activeOnomaStep,
       });
     });
 
     return () => { unsub(); m.stop(); };
-  }, [song, schedule, totalBars, onomaById]);
+  }, [song, schedule, totalBars, onomaById, sectionBarsLen]);
 
   React.useEffect(() => {
     if (metroRef.current) metroRef.current.setBpm(bpm);
   }, [bpm]);
 
-  // smooth beat-phase ticker (for timeline viz)
+  // smooth beat-phase ticker (timeline viz)
   React.useEffect(() => {
     let raf;
     const loop = () => {
@@ -218,9 +264,15 @@ function usePlayerEngine(song, onomaItems, tweaks) {
     return () => cancelAnimationFrame(raf);
   }, [state.running]);
 
+  const resetRefs = () => {
+    endCueTtsRef.current = -1;
+    fillFiredRef.current = '';
+    if (metroRef.current) metroRef.current._suppressRanges = [];
+  };
+
   const play = async () => {
     if (!metroRef.current) return;
-    // Count-in only on the very first play of a fresh / restarted session.
+    // Apply count-in only on the first play of a fresh / restarted session.
     const wantCountIn = freshStartRef.current && countIn > 0 && state.totalBeat === 0;
     const startBeat = wantCountIn ? -countIn * song.beatsPerBar : state.totalBeat;
     const subdivision = startBeat < 0 ? 1 : (song.subdivision || 1);
@@ -237,15 +289,9 @@ function usePlayerEngine(song, onomaItems, tweaks) {
   };
   const restart = async () => {
     pause();
-    ttsFiredRef.current = new Set();
-    onomaScheduledRef.current = -1;
+    resetRefs();
     freshStartRef.current = true;
-    setState({
-      running: false, countingIn: false, countInBarsLeft: 0,
-      sectionIdx: 0, barInSection: 0, beatInBar: 0, subOfBeat: 0,
-      totalBeat: 0, barsLeft: 0, cueActive: false, accent: false,
-      onomaActive: false, onomaId: null, onomaStep: -1,
-    });
+    setState(initial());
     await new Promise((r) => setTimeout(r, 60));
     const startBeat = countIn > 0 ? -countIn * song.beatsPerBar : 0;
     const subdivision = startBeat < 0 ? 1 : (song.subdivision || 1);
@@ -258,18 +304,18 @@ function usePlayerEngine(song, onomaItems, tweaks) {
   const jumpToBar = async (totalBarNum) => {
     const wasRunning = state.running;
     if (metroRef.current) metroRef.current.stop();
-    ttsFiredRef.current = new Set();
-    onomaScheduledRef.current = -1;
+    resetRefs();
     freshStartRef.current = false;
     const startBeat = totalBarNum * song.beatsPerBar;
-    const { sectionIdx, barInSection } = schedule[totalBarNum] || { sectionIdx: 0, barInSection: 0 };
-    setState((s) => ({
-      ...s, running: false,
-      sectionIdx, barInSection, beatInBar: 0, subOfBeat: 0,
-      totalBeat: startBeat, barsLeft: song.sections[sectionIdx].bars - barInSection - 1,
-      cueActive: false, accent: false,
-      onomaActive: false, onomaId: null, onomaStep: -1,
-    }));
+    const entry = schedule[totalBarNum];
+    if (!entry) return;
+    setState({
+      ...initial(),
+      sectionIdx: entry.sectionIdx,
+      barInSection: entry.barInSection,
+      totalBeat: startBeat,
+      barsLeftInSection: sectionBarsLen[entry.sectionIdx] - entry.barInSection - 1,
+    });
     if (wasRunning) {
       await new Promise((r) => setTimeout(r, 60));
       await metroRef.current.start({
@@ -279,23 +325,37 @@ function usePlayerEngine(song, onomaItems, tweaks) {
       setState((s) => ({ ...s, running: true }));
     }
   };
-  const jumpToSection = (sectionIdx) => jumpToBar(window.BBData.sectionStartBar(song, sectionIdx));
+  const jumpToSection = (sectionIdx) => jumpToBar(sectionStartBars[sectionIdx]);
+  const jumpToPhrase = (sectionIdx, phraseIdx) => {
+    let bar = sectionStartBars[sectionIdx];
+    const s = song.sections[sectionIdx];
+    if (s.phrases) {
+      for (let i = 0; i < phraseIdx; i++) {
+        bar += s.phrases[i].bars * s.phrases[i].repeat;
+      }
+    }
+    jumpToBar(bar);
+  };
 
   const section = song.sections[state.sectionIdx] || song.sections[0];
   const nextSection = song.sections[state.sectionIdx + 1];
+  const phrase = section.phrases?.[state.phraseIdx];
   return {
-    ...state, bpm, setBpm, play, pause, restart, jumpToBar, jumpToSection,
-    section, nextSection, beatPhase: beatPhaseRef.current,
-    onomaItem: state.onomaId ? onomaById.get(state.onomaId) : null,
-    schedule,
+    ...state, bpm, setBpm, play, pause, restart,
+    jumpToBar, jumpToSection, jumpToPhrase,
+    section, nextSection, phrase,
+    beatPhase: beatPhaseRef.current,
+    activeOnomaItem: state.activeOnomaId ? onomaById.get(state.activeOnomaId) : null,
+    schedule, sectionStartBars,
   };
 }
 
-function SectionSidebar({ song, eng, collapsed, onToggle }) {
+/** Sidebar — section + phrase navigation. */
+function SectionSidebar({ song, eng }) {
   return (
-    <aside className={`pl-sidebar${collapsed ? ' collapsed' : ''}`}>
+    <aside className="pl-sidebar">
       <div className="pl-sidebar-head">
-        <span className="label">Secciones</span>
+        <span className="label">Estructura</span>
         <span className="num-mono pl-sidebar-count">{song.sections.length}</span>
       </div>
       <div className="pl-sidebar-list">
@@ -303,7 +363,8 @@ function SectionSidebar({ song, eng, collapsed, onToggle }) {
           const color = window.BBData.getColor(s.color || 'orange');
           const isCur = i === eng.sectionIdx;
           const isDone = i < eng.sectionIdx;
-          const startBar = window.BBData.sectionStartBar(song, i);
+          const sectionStart = eng.sectionStartBars[i];
+          const phrases = s.phrases || [{ id: 'legacy', bars: s.bars || 0, repeat: 1 }];
           return (
             <div key={s.id}
                  className={`pl-sec${isCur ? ' on' : ''}${isDone ? ' done' : ''}`}
@@ -316,23 +377,62 @@ function SectionSidebar({ song, eng, collapsed, onToggle }) {
                     <span className="pl-sec-name">{s.name}</span>
                   </div>
                   <div className="pl-sec-meta">
-                    <span className="num-mono">{s.bars} compases</span>
-                    {s.endCue?.type === 'fill' && <span className="pl-sec-pill fill">FILL</span>}
+                    <span className="num-mono">{window.BBData.sectionBars(s)} compases</span>
+                    {phrases.some((p) => p.fill) && <span className="pl-sec-pill fill">FILL</span>}
                     {s.endCue?.type === 'stop' && <span className="pl-sec-pill stop">PARADA</span>}
                   </div>
                 </div>
               </button>
-              {/* Per-bar mini grid for jumping to a specific bar */}
-              <div className="pl-sec-bars" style={{ '--bars': s.bars }}>
-                {Array.from({ length: s.bars }).map((_, b) => {
-                  const isCurBar = isCur && b === eng.barInSection;
-                  const isPlayed = isDone || (isCur && b < eng.barInSection);
+              {/* Phrases listing */}
+              <div className="pl-sec-phrases">
+                {phrases.map((p, pi) => {
+                  let phraseStartInSection = 0;
+                  for (let k = 0; k < pi; k++) phraseStartInSection += phrases[k].bars * phrases[k].repeat;
+                  const phraseStartBar = sectionStart + phraseStartInSection;
+                  const isCurPhrase = isCur && pi === eng.phraseIdx;
                   return (
-                    <button key={b} className={`pl-bar${isCurBar ? ' on' : ''}${isPlayed ? ' played' : ''}`}
-                            onClick={() => eng.jumpToBar(startBar + b)}
-                            title={`Comp. ${b + 1}`}>
-                      {isCurBar && <span className="pl-bar-pip" />}
-                    </button>
+                    <div key={p.id} className={`pl-phr${isCurPhrase ? ' on' : ''}`}>
+                      <button className="pl-phr-head"
+                              onClick={() => eng.jumpToPhrase(i, pi)}>
+                        <span className="pl-phr-letter">{String.fromCharCode(65 + pi)}</span>
+                        <span className="pl-phr-label">
+                          {p.name ? p.name : <span className="pl-phr-anon">{p.bars}×{p.repeat}</span>}
+                        </span>
+                        <span className="pl-phr-meta num-mono">
+                          {p.bars}×{p.repeat}
+                          {p.fill && <span className="pl-phr-fill-dot" title="con fill" />}
+                        </span>
+                      </button>
+                      {/* per-iteration bars */}
+                      <div className="pl-phr-iters">
+                        {Array.from({ length: p.repeat }).map((_, iter) => {
+                          const isCurIter = isCurPhrase && iter === eng.iterationIdx;
+                          const isPastIter = isCurPhrase && iter < eng.iterationIdx;
+                          return (
+                            <div key={iter} className={`pl-iter${isCurIter ? ' on' : ''}${isPastIter ? ' past' : ''}`}>
+                              <span className="pl-iter-num num-mono">{iter + 1}</span>
+                              <div className="pl-iter-bars" style={{ '--bars': p.bars }}>
+                                {Array.from({ length: p.bars }).map((_, b) => {
+                                  const isFill = p.fill && b === p.bars - 1;
+                                  const isCurBar = isCurIter && b === eng.barInIteration;
+                                  const isPastBar = (isCurPhrase && iter < eng.iterationIdx)
+                                    || (isCurIter && b < eng.barInIteration);
+                                  const targetBar = phraseStartBar + iter * p.bars + b;
+                                  return (
+                                    <button key={b}
+                                            className={`pl-bar${isCurBar ? ' on' : ''}${isPastBar ? ' played' : ''}${isFill ? ' fill' : ''}`}
+                                            onClick={(e) => { e.stopPropagation(); eng.jumpToBar(targetBar); }}
+                                            title={`Iter ${iter + 1}, comp. ${b + 1}${isFill ? ' (fill)' : ''}`}>
+                                      {isCurBar && <span className="pl-bar-pip" />}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                   );
                 })}
               </div>
@@ -344,22 +444,19 @@ function SectionSidebar({ song, eng, collapsed, onToggle }) {
   );
 }
 
-function OnomaOverlay({ onoma, currentStep, beatsPerBar }) {
+function OnomaOverlay({ onoma, currentStep, beatsPerBar, label }) {
   if (!onoma) return null;
   const stepsPerBeat = onoma.resolution / beatsPerBar;
-  // gather syllables in order of step
   const syllables = [];
   const seenSteps = new Set();
-  onoma.hits
-    .slice().sort((a, b) => a.step - b.step)
-    .forEach((h) => {
-      if (seenSteps.has(h.step)) return;
-      seenSteps.add(h.step);
-      if (h.text) syllables.push({ step: h.step, text: h.text });
-    });
+  onoma.hits.slice().sort((a, b) => a.step - b.step).forEach((h) => {
+    if (seenSteps.has(h.step)) return;
+    seenSteps.add(h.step);
+    if (h.text) syllables.push({ step: h.step, text: h.text });
+  });
   return (
     <div className="onoma-overlay">
-      <div className="onoma-overlay-head">FILL · {onoma.name}</div>
+      <div className="onoma-overlay-head">{label || 'FILL'} · {onoma.name}</div>
       <div className="onoma-overlay-syllables">
         {syllables.map((s, i) => {
           const active = s.step === currentStep;
@@ -392,24 +489,26 @@ function Player({ song, onomaItems, onBack, tweaks }) {
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const [sheetOpen, setSheetOpen] = React.useState(false);
 
-  const sectionProgress = Math.min(100, ((eng.barInSection + 1) / eng.section.bars) * 100);
+  const sectionTotal = window.BBData.sectionBars(eng.section);
+  const sectionProgress = sectionTotal > 0
+    ? Math.min(100, ((eng.barInSection + 1) / sectionTotal) * 100) : 0;
   const sectionColor = window.BBData.getColor(eng.section.color || 'orange');
 
-  const showBigNumbers = cueMode === 'big-numbers' && eng.cueActive
-    && eng.barsLeft <= 1;
-  const bigNumber = Math.max(1, eng.barsLeft + 1);
-  const screenTint = cueMode === 'screen-tint' && eng.cueActive;
-  const nextGlow = cueMode === 'next-glow' && eng.cueActive;
-  const banner = cueMode === 'banner' && eng.cueActive;
+  const showBigNumbers = cueMode === 'big-numbers' && eng.endCueActive
+    && eng.barsLeftInSection <= 1;
+  const bigNumber = Math.max(1, eng.barsLeftInSection + 1);
+  const screenTint = cueMode === 'screen-tint' && eng.endCueActive;
+  const nextGlow = cueMode === 'next-glow' && eng.endCueActive;
+  const banner = cueMode === 'banner' && eng.endCueActive;
 
   return (
-    <div className={`player has-sidebar${screenTint ? ' tint' : ''}${eng.cueActive ? ' cue-on' : ''}${sidebarOpen ? '' : ' sidebar-closed'}`}
+    <div className={`player has-sidebar${screenTint ? ' tint' : ''}${eng.endCueActive ? ' cue-on' : ''}${sidebarOpen ? '' : ' sidebar-closed'}`}
          style={{ '--c-section': sectionColor.ink }}>
       <div className="player-bar">
         <button className="btn ghost icon" onClick={onBack} title="Volver">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
         </button>
-        <button className="btn ghost icon pl-sidebar-toggle" onClick={() => setSidebarOpen((v) => !v)} title="Secciones">
+        <button className="btn ghost icon pl-sidebar-toggle" onClick={() => setSidebarOpen((v) => !v)} title="Estructura">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h12M3 18h18"/></svg>
         </button>
         <div className="player-title">
@@ -419,10 +518,11 @@ function Player({ song, onomaItems, onBack, tweaks }) {
         <div className="player-progress">
           {song.sections.map((s, i) => {
             const c = window.BBData.getColor(s.color || 'orange');
+            const sb = window.BBData.sectionBars(s);
             return (
               <span key={s.id}
                     className={`pp-seg${i === eng.sectionIdx ? ' on' : ''}${i < eng.sectionIdx ? ' done' : ''}`}
-                    style={{ flex: s.bars, '--c-ink': c.ink }}
+                    style={{ flex: sb, '--c-ink': c.ink }}
                     onClick={() => eng.jumpToSection(i)}
                     title={s.name}>
                 {i === eng.sectionIdx && (
@@ -432,7 +532,6 @@ function Player({ song, onomaItems, onBack, tweaks }) {
             );
           })}
         </div>
-        {/* mobile sheet trigger */}
         <button className="btn ghost icon pl-sheet-btn" onClick={() => setSheetOpen(true)} title="Lista">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
         </button>
@@ -445,54 +544,67 @@ function Player({ song, onomaItems, onBack, tweaks }) {
             {eng.section.endCue?.type === 'fill' ? 'FILL' :
              eng.section.endCue?.type === 'stop' ? 'PARADA' : 'CAMBIO'}
             <span className="cue-banner-in"> en </span>
-            <b className="num-mono">{eng.barsLeft + 1}</b>
-            <span className="cue-banner-in"> {eng.barsLeft === 0 ? 'compás' : 'compases'}</span>
+            <b className="num-mono">{eng.barsLeftInSection + 1}</b>
+            <span className="cue-banner-in"> {eng.barsLeftInSection === 0 ? 'compás' : 'compases'}</span>
           </span>
-          {eng.section.endCue?.say && !eng.onomaActive && (
+          {eng.section.endCue?.say && (
             <span className="cue-banner-say">"{eng.section.endCue.say}"</span>
           )}
         </div>
       )}
 
       <div className="player-shell">
-        {sidebarOpen && (
-          <SectionSidebar song={song} eng={eng} />
-        )}
-
+        {sidebarOpen && <SectionSidebar song={song} eng={eng} />}
         <div className="player-main">
           <div className="player-grid">
             <div className={`player-now${eng.countingIn ? ' countin' : ''}`}>
-              {eng.countingIn ? (
-                <>
-                  <div className="player-now-label">CUENTA DE ENTRADA</div>
-                  <div className="player-now-name num-mono">{eng.countInBarsLeft}</div>
-                  <div className="player-now-bars">
-                    <span className="player-now-unit">
-                      {eng.countInBarsLeft === 1 ? 'compás para empezar' : 'compases para empezar'}
+              {eng.countingIn ? (<>
+                <div className="player-now-label">CUENTA DE ENTRADA</div>
+                <div className="player-now-name num-mono">{eng.countInBarsLeft}</div>
+                <div className="player-now-bars">
+                  <span className="player-now-unit">
+                    {eng.countInBarsLeft === 1 ? 'compás para empezar' : 'compases para empezar'}
+                  </span>
+                </div>
+              </>) : (<>
+              <div className="player-now-label">
+                <span className="player-now-dot" style={{ background: sectionColor.ink }} />
+                AHORA · sección {eng.sectionIdx + 1}/{song.sections.length}
+              </div>
+              <div className="player-now-name">{eng.section.name}</div>
+              <div className="player-now-bars">
+                <span className="num-mono player-now-cur">{eng.barInSection + 1}</span>
+                <span className="player-now-slash">/</span>
+                <span className="num-mono player-now-tot">{sectionTotal}</span>
+                <span className="player-now-unit">compases</span>
+              </div>
+              {eng.phrase && (
+                <div className={`player-now-phrase${eng.fillLeadActive && !eng.endCueActive ? ' active' : ''}`}>
+                  <span className="player-now-phrase-letter">{String.fromCharCode(65 + eng.phraseIdx)}</span>
+                  <span>
+                    {eng.phrase.name || 'frase'}
+                    <span className="player-now-phrase-sep"> · </span>
+                    rep <b className="num-mono">{eng.iterationIdx + 1}</b>/{eng.iterationCount}
+                    <span className="player-now-phrase-sep"> · </span>
+                    compás <b className="num-mono">{eng.barInIteration + 1}</b>/{eng.iterationBars}
+                  </span>
+                  {eng.fillLeadActive && !eng.endCueActive && (
+                    <span className="player-now-phrase-cue">
+                      FILL
+                      <span> en <b className="num-mono">{eng.fillBarsLeft + 1}</b></span>
                     </span>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="player-now-label">
-                    <span className="player-now-dot" style={{ background: sectionColor.ink }} />
-                    AHORA · sección {eng.sectionIdx + 1}/{song.sections.length}
-                  </div>
-                  <div className="player-now-name">{eng.section.name}</div>
-                  <div className="player-now-bars">
-                    <span className="num-mono player-now-cur">{eng.barInSection + 1}</span>
-                    <span className="player-now-slash">/</span>
-                    <span className="num-mono player-now-tot">{eng.section.bars}</span>
-                    <span className="player-now-unit">compases</span>
-                  </div>
-                </>
+                  )}
+                </div>
               )}
+              </>)}
             </div>
 
             <div className="player-viz">
-              {eng.onomaActive && eng.onomaItem ? (
-                <OnomaOverlay onoma={eng.onomaItem} currentStep={eng.onomaStep}
-                              beatsPerBar={song.beatsPerBar} />
+              {eng.activeOnomaItem ? (
+                <OnomaOverlay onoma={eng.activeOnomaItem}
+                              currentStep={eng.activeOnomaStep}
+                              beatsPerBar={song.beatsPerBar}
+                              label="FILL" />
               ) : (
                 <window.BeatViz mode={beatViz} beatsPerBar={song.beatsPerBar}
                                 currentBeat={eng.beatInBar} accent={eng.accent}
@@ -500,26 +612,24 @@ function Player({ song, onomaItems, onBack, tweaks }) {
               )}
             </div>
 
-            <div className={`player-next${nextGlow && !eng.countingIn ? ' glow' : ''}${eng.cueActive && !eng.countingIn ? ' active' : ''}`}>
-              {eng.countingIn ? (
-                <>
-                  <div className="player-next-label">
-                    EMPIEZA EN
-                    <span className="player-next-countdown num-mono">
-                      {eng.countInBarsLeft} {eng.countInBarsLeft === 1 ? 'compás' : 'compases'}
-                    </span>
-                  </div>
-                  <div className="player-next-name">{song.sections[0].name}</div>
-                  <div className="player-next-meta">
-                    <span className="num-mono">{song.sections[0].bars} compases</span>
-                  </div>
-                </>
-              ) : (<>
-              <div className="player-next-label">
-                {eng.cueActive ? 'EN' : 'PRÓXIMO'}
-                {eng.cueActive && (
+            <div className={`player-next${nextGlow && !eng.countingIn ? ' glow' : ''}${eng.endCueActive && !eng.countingIn ? ' active' : ''}`}>
+              {eng.countingIn ? (<>
+                <div className="player-next-label">
+                  EMPIEZA EN
                   <span className="player-next-countdown num-mono">
-                    {eng.barsLeft + 1} {eng.barsLeft === 0 ? 'compás' : 'compases'}
+                    {eng.countInBarsLeft} {eng.countInBarsLeft === 1 ? 'compás' : 'compases'}
+                  </span>
+                </div>
+                <div className="player-next-name">{song.sections[0].name}</div>
+                <div className="player-next-meta">
+                  <span className="num-mono">{window.BBData.sectionBars(song.sections[0])} compases</span>
+                </div>
+              </>) : (<>
+              <div className="player-next-label">
+                {eng.endCueActive ? 'EN' : 'PRÓXIMO'}
+                {eng.endCueActive && (
+                  <span className="player-next-countdown num-mono">
+                    {eng.barsLeftInSection + 1} {eng.barsLeftInSection === 0 ? 'compás' : 'compases'}
                   </span>
                 )}
               </div>
@@ -527,14 +637,11 @@ function Player({ song, onomaItems, onBack, tweaks }) {
                 <>
                   <div className="player-next-name">{eng.nextSection.name}</div>
                   <div className="player-next-meta">
-                    <span className="num-mono">{eng.nextSection.bars} compases</span>
-                    {eng.section.endCue?.type === 'fill' && (
-                      <span className="player-next-pill fill">FILL antes</span>
-                    )}
+                    <span className="num-mono">{window.BBData.sectionBars(eng.nextSection)} compases</span>
                     {eng.section.endCue?.type === 'stop' && (
                       <span className="player-next-pill stop">PARADA</span>
                     )}
-                    {eng.section.endCue?.say && !eng.onomaActive && (
+                    {eng.section.endCue?.say && (
                       <span className="player-next-say">"{eng.section.endCue.say}"</span>
                     )}
                   </div>
@@ -542,41 +649,42 @@ function Player({ song, onomaItems, onBack, tweaks }) {
               ) : (
                 <>
                   <div className="player-next-name dim">— fin de la canción —</div>
-                  <div className="player-next-meta">
-                    {eng.section.endCue?.say && (
+                  {eng.section.endCue?.say && (
+                    <div className="player-next-meta">
                       <span className="player-next-say">"{eng.section.endCue.say}"</span>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </>
               )}
               </>)}
             </div>
           </div>
 
-          {showBigNumbers && !eng.onomaActive && (
-            <div className="big-numbers" key={`big-${eng.barsLeft}`}>
+          {showBigNumbers && !eng.activeOnomaItem && (
+            <div className="big-numbers" key={`big-${eng.barsLeftInSection}`}>
               <div className="big-numbers-n">{bigNumber}</div>
               <div className="big-numbers-lbl">
                 {eng.section.endCue?.say ?
                   `"${eng.section.endCue.say}"` :
-                  (eng.barsLeft === 0 ? 'último compás' : 'compases')}
+                  (eng.barsLeftInSection === 0 ? 'último compás' : 'compases')}
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Mobile bottom sheet */}
       {sheetOpen && (
         <div className="pl-sheet" onClick={() => setSheetOpen(false)}>
           <div className="pl-sheet-panel" onClick={(e) => e.stopPropagation()}>
             <div className="pl-sheet-bar">
-              <span className="label">Secciones</span>
+              <span className="label">Estructura</span>
               <button className="btn icon ghost" onClick={() => setSheetOpen(false)}>✕</button>
             </div>
-            <SectionSidebar song={song} eng={{ ...eng,
+            <SectionSidebar song={song} eng={{
+              ...eng,
               jumpToSection: (i) => { eng.jumpToSection(i); setSheetOpen(false); },
               jumpToBar: (b) => { eng.jumpToBar(b); setSheetOpen(false); },
+              jumpToPhrase: (s, p) => { eng.jumpToPhrase(s, p); setSheetOpen(false); },
             }} />
           </div>
         </div>
@@ -585,11 +693,10 @@ function Player({ song, onomaItems, onBack, tweaks }) {
       <div className="player-controls">
         <div className="player-bpm">
           <span className="label">BPM · {(() => {
-            const sd = eng.section.subdivision != null ? eng.section.subdivision : (song.subdivision || 1);
-            return sd === 1 ? 'negras' :
-                   sd === 2 ? 'corcheas' :
-                   sd === 3 ? 'tresillos' :
-                   'semicorcheas';
+            const sd = eng.section.subdivision != null
+              ? eng.section.subdivision : (song.subdivision || 1);
+            return sd === 1 ? 'negras' : sd === 2 ? 'corcheas'
+                   : sd === 3 ? 'tresillos' : 'semicorcheas';
           })()}</span>
           <div className="bpm-stepper">
             <button className="btn icon ghost" onClick={() => eng.setBpm(Math.max(20, eng.bpm - 1))}>−</button>
