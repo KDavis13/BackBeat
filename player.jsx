@@ -699,6 +699,16 @@ function Player({ song, onomaItems, onBack, tweaks }) {
             </div>
 
             <div className={`player-next${!eng.countingIn ? ' has-progress' : ''}${nextGlow && !eng.countingIn ? ' glow' : ''}${eng.endCueActive && !eng.countingIn ? ' active' : ''}`}>
+              {showBigNumbers && !eng.activeOnomaItem && (
+                <div className="big-numbers" key={`big-${eng.barsLeftInSection}`}>
+                  <div className="big-numbers-n">{bigNumber}</div>
+                  <div className="big-numbers-lbl">
+                    {eng.section.endCue?.say ?
+                      `"${eng.section.endCue.say}"` :
+                      (eng.barsLeftInSection === 0 ? 'último compás' : 'compases')}
+                  </div>
+                </div>
+              )}
               {eng.countingIn ? (<>
                 <div className="player-next-label">
                   EMPIEZA EN
@@ -737,16 +747,6 @@ function Player({ song, onomaItems, onBack, tweaks }) {
             </div>
           </div>
 
-          {showBigNumbers && !eng.activeOnomaItem && (
-            <div className="big-numbers" key={`big-${eng.barsLeftInSection}`}>
-              <div className="big-numbers-n">{bigNumber}</div>
-              <div className="big-numbers-lbl">
-                {eng.section.endCue?.say ?
-                  `"${eng.section.endCue.say}"` :
-                  (eng.barsLeftInSection === 0 ? 'último compás' : 'compases')}
-              </div>
-            </div>
-          )}
         </div>
       </div>
 

@@ -489,6 +489,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  position: relative;
   transition: background .25s, border-color .25s, box-shadow .25s, transform .15s;
 }
 .player-next.glow.active {
@@ -688,7 +689,8 @@
 .pp-footer-bars { color: var(--text-muted); font-family: var(--font-mono); }
 .pp-footer.dim .pp-footer-name { color: var(--text-muted); font-style: italic; }
 
-/* Big-numbers overlay */
+/* Big-numbers overlay — confined to the right player-next panel so the
+ * countdown is prominent without taking over the whole screen. */
 .big-numbers {
   position: absolute;
   inset: 0;
@@ -698,7 +700,7 @@
   align-items: center;
   justify-content: center;
   pointer-events: none;
-  background: radial-gradient(circle at center, rgba(251,191,36,.22) 0%, rgba(13,11,8,.85) 60%, rgba(13,11,8,.95) 100%);
+  background: radial-gradient(circle at center, rgba(251,191,36,.22) 0%, rgba(13,11,8,.92) 70%, rgba(13,11,8,.98) 100%);
   animation: bigNumIn .15s ease-out;
 }
 @keyframes bigNumIn {
@@ -707,11 +709,11 @@
 }
 .big-numbers-n {
   font-family: var(--font-mono);
-  font-size: clamp(180px, 40vw, 380px);
+  font-size: clamp(120px, 22vw, 280px);
   font-weight: 700;
   color: var(--warn);
   line-height: 1;
-  text-shadow: 0 0 60px rgba(251,191,36,.5);
+  text-shadow: 0 0 40px rgba(251,191,36,.45);
   animation: bigNumPop .4s ease-out;
 }
 @keyframes bigNumPop {
@@ -720,10 +722,11 @@
   100% { transform: scale(1); opacity: 1; }
 }
 .big-numbers-lbl {
-  font-size: clamp(16px, 3vw, 28px);
+  font-size: clamp(14px, 2vw, 22px);
   font-weight: 600;
   color: #fff;
   letter-spacing: 0.02em;
+  margin-top: 6px;
 }
 
 /* Bottom controls */
