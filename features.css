@@ -4,10 +4,43 @@
 .ed-section-colors {
   display: flex;
   gap: 4px;
+  flex-wrap: wrap;
+  max-width: 168px;
   padding-right: 6px;
   border-right: 1px solid var(--border);
   margin-right: 2px;
 }
+.ed-section-collapse {
+  align-self: center;
+  padding: 4px 6px;
+  background: transparent;
+  border-color: transparent;
+}
+.ed-section-collapse:hover {
+  background: var(--bg-elev-3);
+}
+.ed-section.is-collapsed {
+  background: linear-gradient(180deg, var(--bg-elev), var(--bg));
+}
+.ed-section.is-collapsed .ed-section-head {
+  margin-bottom: 0;
+}
+.ed-section-stats-pill {
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  border-radius: 0;
+}
+.ed-section-stats-pill.fill { background: rgba(251,146,60,.16); color: var(--accent); }
+.ed-section-stats-pill.stop { background: rgba(248,113,113,.16); color: var(--danger); }
+
+.ed-collapse-all {
+  font-size: 12px;
+  padding: 5px 10px;
+  margin-left: 8px;
+}
+.ed-collapse-all svg { transition: transform .15s; }
 .ed-color-dot {
   width: 16px;
   height: 16px;

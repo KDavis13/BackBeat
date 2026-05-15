@@ -13,7 +13,11 @@ const SUBDIV_OPTS = [
   { value: 4, label: '♬', sub: '16ths' },
 ];
 
-const SECTION_COLORS = ['orange', 'coral', 'gold', 'magenta', 'lime', 'violet'];
+const SECTION_COLORS = [
+  'orange', 'coral', 'red', 'gold',
+  'lime', 'emerald', 'teal', 'sky',
+  'violet', 'magenta',
+];
 
 /** Onomatopoeia list editor — add/remove/reorder. */
 function OnomaPicker({ ids, onChange, onomaItems, slotLabel }) {
@@ -193,13 +197,14 @@ function PhraseEditor({ phrase, index, total, onChange, onMove, onDuplicate, onD
   );
 }
 
-function SectionEditor({ section, index, total, onChange, onDelete, onMove, onDuplicate, onomaItems }) {
+function SectionEditor({ section, index, total, collapsed, onToggleCollapse, onChange, onDelete, onMove, onDuplicate, onomaItems }) {
   const setSection = (patch) => onChange({ ...section, ...patch });
   const cue = section.endCue || {};
   const setCue = (patch) => setSection({ endCue: { ...cue, ...patch } });
   const color = window.BBData.getColor(section.color || 'orange');
   const phrases = section.phrases || [];
   const totalBars = window.BBData.sectionBars(section);
+  const hasFill = phrases.some((p) => p.fill);
 
   const updatePhrase = (p) => setSection({
     phrases: phrases.map((x) => x.id === p.id ? p : x),
@@ -228,9 +233,18 @@ function SectionEditor({ section, index, total, onChange, onDelete, onMove, onDu
   });
 
   return (
-    <div className="ed-section"
+    <div className={`ed-section${collapsed ? ' is-collapsed' : ''}`}
          style={{ '--c-ink': color.ink, '--c-tint': color.tint, '--c-border': color.border }}>
       <div className="ed-section-head">
+        <button className="btn icon ghost ed-section-collapse"
+                onClick={onToggleCollapse}
+                title={collapsed ? 'Desplegar' : 'Plegar'}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" strokeWidth="2"
+               style={{ transform: collapsed ? 'rotate(-90deg)' : 'none', transition: 'transform .15s' }}>
+            <path d="M6 9l6 6 6-6"/>
+          </svg>
+        </button>
         <span className="ed-section-num num-mono">{String(index + 1).padStart(2, '0')}</span>
         <input className="input ed-section-title" value={section.name}
                placeholder="Nombre de la sección"
@@ -265,8 +279,11 @@ function SectionEditor({ section, index, total, onChange, onDelete, onMove, onDu
         <span className="num-mono"><b>{totalBars}</b> compases totales</span>
         <span className="ed-dot" />
         <span className="num-mono">{phrases.length} {phrases.length === 1 ? 'frase' : 'frases'}</span>
+        {hasFill && <><span className="ed-dot" /><span className="ed-section-stats-pill fill">FILL</span></>}
+        {section.endCue?.type === 'stop' && <><span className="ed-dot" /><span className="ed-section-stats-pill stop">PARADA</span></>}
       </div>
 
+      {!collapsed && (<>
       <div className="ed-section-subdiv">
         <label className="label">Subdivisión del metrónomo (override)</label>
         <div className="seg ed-subdiv">
@@ -338,12 +355,28 @@ function SectionEditor({ section, index, total, onChange, onDelete, onMove, onDu
           </div>
         </div>
       </div>
+      </>)}
     </div>
   );
 }
 
 function Editor({ song, onChange, onDone, onCancel, onPlay, onomaItems }) {
   const set = (patch) => onChange({ ...song, ...patch });
+  // Collapsed sections — Set of section IDs that are currently folded.
+  // Lives in component state (not persisted) so it resets per editor session.
+  const [collapsedIds, setCollapsedIds] = React.useState(() => new Set());
+  const isCollapsed = (id) => collapsedIds.has(id);
+  const toggleCollapsed = (id) => setCollapsedIds((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const allCollapsed = song.sections.length > 0
+    && song.sections.every((s) => collapsedIds.has(s.id));
+  const toggleAll = () => {
+    if (allCollapsed) setCollapsedIds(new Set());
+    else setCollapsedIds(new Set(song.sections.map((s) => s.id)));
+  };
   const setSection = (sec) => set({
     sections: song.sections.map((s) => s.id === sec.id ? sec : s),
   });
@@ -443,12 +476,23 @@ function Editor({ song, onChange, onDone, onCancel, onPlay, onomaItems }) {
           <span className="num-mono">~{minutes} min</span>
           <span className="ed-dot" />
           <span className="num-mono">{song.sections.length} secciones</span>
+          <button className="btn ghost ed-collapse-all" type="button" onClick={toggleAll}
+                  title={allCollapsed ? 'Desplegar todas las secciones' : 'Plegar todas las secciones'}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" strokeWidth="2"
+                 style={{ transform: allCollapsed ? 'rotate(-90deg)' : 'none' }}>
+              <path d="M6 9l6 6 6-6"/>
+            </svg>
+            {allCollapsed ? 'Desplegar todas' : 'Plegar todas'}
+          </button>
         </div>
       </div>
 
       <div className="ed-sections">
         {song.sections.map((s, i) => (
           <SectionEditor key={s.id} section={s} index={i} total={song.sections.length}
+                         collapsed={isCollapsed(s.id)}
+                         onToggleCollapse={() => toggleCollapsed(s.id)}
                          onChange={setSection}
                          onDelete={deleteSection}
                          onMove={moveSection}

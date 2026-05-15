@@ -387,6 +387,10 @@
     magenta: { ink: '#f472b6', tint: 'rgba(244,114,182,.14)', border: 'rgba(244,114,182,.4)' },
     lime:    { ink: '#a3e635', tint: 'rgba(163,230,53,.14)',  border: 'rgba(163,230,53,.4)' },
     violet:  { ink: '#c084fc', tint: 'rgba(192,132,252,.14)', border: 'rgba(192,132,252,.4)' },
+    sky:     { ink: '#38bdf8', tint: 'rgba(56,189,248,.14)',  border: 'rgba(56,189,248,.4)' },
+    emerald: { ink: '#34d399', tint: 'rgba(52,211,153,.14)',  border: 'rgba(52,211,153,.4)' },
+    red:     { ink: '#ef4444', tint: 'rgba(239,68,68,.14)',   border: 'rgba(239,68,68,.4)' },
+    teal:    { ink: '#2dd4bf', tint: 'rgba(45,212,191,.14)',  border: 'rgba(45,212,191,.4)' },
   };
   function getColor(key) { return COLORS[key] || COLORS.orange; }
 
