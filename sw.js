@@ -3,7 +3,7 @@
 //
 // Bump CACHE_NAME on each release to invalidate older caches.
 
-const CACHE_NAME = 'backbeat-v10';
+const CACHE_NAME = 'backbeat-v11';
 const PRECACHE = [
   './',
   './index.html',
@@ -18,6 +18,7 @@ const PRECACHE = [
   './library.jsx',
   './onoma.jsx',
   './player.jsx',
+  './practice.jsx',
   './tweaks-panel.jsx',
   './manifest.webmanifest',
   './icon.svg',

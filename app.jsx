@@ -70,6 +70,10 @@ function App() {
                                  onAdd={onOnomaAdd}
                                  onDelete={onOnomaDelete} />;
     }
+    if (view.name === 'practice') {
+      return <window.Practice onomaItems={onoma}
+                              openOnomaScreen={() => setView({ name: 'onoma' })} />;
+    }
     return <window.Library songs={songs} onPlay={onPlay} onEdit={onEdit}
                            onNew={onNew} onDelete={onDelete}
                            onImport={onImport} onExport={onExport} />;
@@ -98,6 +102,8 @@ function App() {
                     }}>Editor</button>
             <button className="tab" data-on={view.name === 'onoma' ? '1' : '0'}
                     onClick={() => setView({ name: 'onoma' })}>Grooves</button>
+            <button className="tab" data-on={view.name === 'practice' ? '1' : '0'}
+                    onClick={() => setView({ name: 'practice' })}>Práctica</button>
           </div>
         </div>
       )}
