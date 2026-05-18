@@ -168,6 +168,7 @@
 
     _click(when, { isQuarter, accent, accentStrong, subOfBeat }) {
       if (this._isSuppressed(when)) return;
+      if (this._clickQuartersOnly && !isQuarter) return;
       const ctx = this.ctx;
       const dur = 0.04;
 
