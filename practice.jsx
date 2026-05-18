@@ -12,7 +12,8 @@ const PRACTICE_DEFAULTS = {
   startBpm: 80,
   rampStep: 5,
   rampIntervalSec: 60,
-  maxBpm: 0, // 0 = no cap
+  maxBpm: 0,      // 0 = no cap
+  settleBars: 1,  // bars of click-only between a BPM bump and the groove resuming
 };
 
 function practiceLoadSettings() {
@@ -96,6 +97,9 @@ function Practice({ onomaItems, openOnomaScreen }) {
   const [elapsedSec, setElapsedSec] = React.useState(0);
   const [totalSec, setTotalSec] = React.useState(0);
   const [metroClick, setMetroClick] = React.useState(true);
+  // Settling: brief click-only window right after a BPM bump so the drummer
+  // can lock in to the new tempo before the groove kicks back in.
+  const [settleRemaining, setSettleRemaining] = React.useState(0);
 
   const groove = (onomaItems || []).find((o) => o.id === settings.grooveId);
 
@@ -107,6 +111,10 @@ function Practice({ onomaItems, openOnomaScreen }) {
   const totalRef = React.useRef(0);
   // Last bar's downbeat audio time + duration — read by the rAF viz.
   const barRef = React.useRef({ start: 0, dur: 0 });
+  // Set by the ramp ticker when BPM bumps. Read+reset on the next downbeat
+  // so the settle-window starts on a bar boundary, not mid-bar.
+  const pendingSettleRef = React.useRef(0);
+  const settleRemainingRef = React.useRef(0);
 
   // Cleanup on unmount
   React.useEffect(() => () => {
@@ -149,12 +157,18 @@ function Practice({ onomaItems, openOnomaScreen }) {
       if (bump) {
         setBpm((b) => {
           const cap = settings.maxBpm > 0 ? settings.maxBpm : Infinity;
-          return Math.min(b + settings.rampStep, cap);
+          const next = Math.min(b + settings.rampStep, cap);
+          // Only enter settle mode if the BPM actually changed (didn't
+          // hit the cap and stay).
+          if (next > b && settings.settleBars > 0) {
+            pendingSettleRef.current = settings.settleBars;
+          }
+          return next;
         });
       }
     }, 100);
     return () => clearInterval(id);
-  }, [running, settings.rampIntervalSec, settings.rampStep, settings.maxBpm]);
+  }, [running, settings.rampIntervalSec, settings.rampStep, settings.maxBpm, settings.settleBars]);
 
   const play = async () => {
     if (!groove) return;
@@ -171,6 +185,9 @@ function Practice({ onomaItems, openOnomaScreen }) {
     m.setClickQuartersOnly(false);
 
     lastPatternRef.current = -1;
+    pendingSettleRef.current = 0;
+    settleRemainingRef.current = 0;
+    setSettleRemaining(0);
     try { unsubRef.current && unsubRef.current(); } catch (e) {}
     unsubRef.current = m.subscribe((ev) => {
       if (ev.type !== 'beat') return;
@@ -178,6 +195,22 @@ function Practice({ onomaItems, openOnomaScreen }) {
       if (beatInBar !== 0) return;
       const barDur = (60 / m.bpm) * beatsPerBar;
       barRef.current = { start: ev.time, dur: barDur };
+
+      // BPM just changed → enter the settle window on this downbeat.
+      if (pendingSettleRef.current > 0) {
+        settleRemainingRef.current = pendingSettleRef.current;
+        pendingSettleRef.current = 0;
+        setSettleRemaining(settleRemainingRef.current);
+      }
+
+      if (settleRemainingRef.current > 0) {
+        // Click-only bar: don't schedule groove hits, don't tally a loop.
+        settleRemainingRef.current -= 1;
+        setSettleRemaining(settleRemainingRef.current);
+        lastPatternRef.current = Math.floor(ev.beat / beatsPerBar);
+        return;
+      }
+
       groove.hits.forEach((h) => {
         const off = window.BBData.grooveOffsetInBar(groove, h.step) * barDur;
         m.schedulePerc(ev.time + off, h.sound, h.velocity);
@@ -205,11 +238,18 @@ function Practice({ onomaItems, openOnomaScreen }) {
     setCurrentStep(-1);
   };
 
-  // rAF viz: derive currentStep from audio time → fraction → cell.
+  // rAF viz: derive currentStep from audio time → fraction → cell. During
+  // the settle window we explicitly leave the cell unlit (the groove isn't
+  // playing — highlighting a cell would be misleading).
   React.useEffect(() => {
     if (!running || !groove) return;
     let raf;
     const tick = () => {
+      if (settleRemainingRef.current > 0) {
+        setCurrentStep(-1);
+        raf = requestAnimationFrame(tick);
+        return;
+      }
       const m = metroRef.current;
       const { start, dur } = barRef.current;
       if (m && m.ctx && dur > 0 && start > 0) {
@@ -232,6 +272,9 @@ function Practice({ onomaItems, openOnomaScreen }) {
     elapsedRef.current = 0;
     totalRef.current = 0;
     lastPatternRef.current = -1;
+    pendingSettleRef.current = 0;
+    settleRemainingRef.current = 0;
+    setSettleRemaining(0);
     setElapsedSec(0);
     setTotalSec(0);
     setLoopCount(0);
@@ -319,6 +362,18 @@ function Practice({ onomaItems, openOnomaScreen }) {
                      })}
                      placeholder="0 = sin tope" />
             </div>
+            <div className="prac-field" style={{ gridColumn: '1 / -1' }}>
+              <label className="label">Adaptación tras subida</label>
+              <select className="select"
+                      value={settings.settleBars}
+                      onChange={(e) => updateSettings({ settleBars: Number(e.target.value) })}>
+                <option value="0">sin adaptación · groove sigue al instante</option>
+                <option value="1">1 compás de solo metrónomo</option>
+                <option value="2">2 compases de solo metrónomo</option>
+                <option value="3">3 compases de solo metrónomo</option>
+                <option value="4">4 compases de solo metrónomo</option>
+              </select>
+            </div>
           </div>
 
           <label className="prac-check">
@@ -336,14 +391,16 @@ function Practice({ onomaItems, openOnomaScreen }) {
 
           <div className="prac-ramp">
             <div className="prac-ramp-text">
-              {atMax ? (
+              {settleRemaining > 0 ? (
+                <>adaptándose · <b className="num-mono">{settleRemaining}</b> {settleRemaining === 1 ? 'compás' : 'compases'} de solo metrónomo</>
+              ) : atMax ? (
                 <>Tope alcanzado · <b className="num-mono">{settings.maxBpm}</b> BPM</>
               ) : (
                 <>siguiente: <b className="num-mono">{nextBpm}</b> BPM
                   {running && <> en <b className="num-mono">{remainingToRamp}</b>s</>}</>
               )}
             </div>
-            <div className="prac-ramp-bar">
+            <div className={`prac-ramp-bar${settleRemaining > 0 ? ' settling' : ''}`}>
               <div className="prac-ramp-fill" style={{ width: `${rampFillPct}%` }} />
             </div>
           </div>

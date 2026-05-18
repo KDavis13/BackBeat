@@ -1196,3 +1196,14 @@
 .prac-controls .play-btn { width: 72px; height: 72px; }
 .prac-controls .play-btn:disabled { opacity: .35; cursor: not-allowed; }
 .prac-reset-btn { padding: 14px 16px; }
+
+/* Practice: visual cue while in the settle window (click-only). */
+.prac-ramp-bar.settling { border-color: var(--warn); }
+.prac-ramp-bar.settling .prac-ramp-fill {
+  background: linear-gradient(90deg, var(--warn), var(--warn-strong));
+  animation: pracSettlePulse 1s ease-in-out infinite alternate;
+}
+@keyframes pracSettlePulse {
+  from { opacity: .6; }
+  to   { opacity: 1; }
+}
