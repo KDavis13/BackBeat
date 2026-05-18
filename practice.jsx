@@ -202,24 +202,31 @@ function Practice({ onomaItems, openOnomaScreen }) {
       if (ev.type !== 'beat') return;
       const beatInBar = ev.beat % beatsPerBar;
       if (beatInBar !== 0) return;
-      const barDur = (60 / m.bpm) * beatsPerBar;
-      barRef.current = { start: ev.time, dur: barDur };
 
-      // Bar-aligned bump: ramp timer hit threshold earlier; apply the
-      // BPM change here so the previous bar finished at the old tempo.
+      // 1. Apply any pending BPM bump synchronously so this bar is fully
+      //    aware of the new tempo (barDur and pendingSettleRef below).
+      //    We mutate the engine directly (m.setBpm) — going through the
+      //    React state setter would defer the update to the next render
+      //    and the rest of this handler would still see the OLD bpm + a
+      //    not-yet-armed settle, costing us an extra bar of lag.
+      let activeBpm = m.bpm;
       if (pendingBumpRef.current) {
         pendingBumpRef.current = false;
         setAwaitingBump(false);
-        setBpm((b) => {
-          const cap = settings.maxBpm > 0 ? settings.maxBpm : Infinity;
-          const next = Math.min(b + settings.rampStep, cap);
-          if (next > b && settings.settleBars > 0) {
-            pendingSettleRef.current = settings.settleBars;
-          }
-          return next;
-        });
+        const cap = settings.maxBpm > 0 ? settings.maxBpm : Infinity;
+        const newBpm = Math.min(activeBpm + settings.rampStep, cap);
+        if (newBpm > activeBpm) {
+          if (settings.settleBars > 0) pendingSettleRef.current = settings.settleBars;
+          m.setBpm(newBpm);
+          setBpm(newBpm);
+          activeBpm = newBpm;
+        }
       }
 
+      const barDur = (60 / activeBpm) * beatsPerBar;
+      barRef.current = { start: ev.time, dur: barDur };
+
+      // 2. Settle activation runs in the same handler tick.
       if (pendingSettleRef.current > 0) {
         settleRemainingRef.current = pendingSettleRef.current;
         pendingSettleRef.current = 0;
@@ -227,16 +234,15 @@ function Practice({ onomaItems, openOnomaScreen }) {
       }
 
       if (settleRemainingRef.current > 0) {
-        // Click-only bar: don't schedule groove hits, don't tally a loop,
-        // and the ramp timer stays frozen.
+        // Click-only bar: skip groove hits, no loop tally, timer frozen.
         settleRemainingRef.current -= 1;
         setSettleRemaining(settleRemainingRef.current);
         lastPatternRef.current = Math.floor(ev.beat / beatsPerBar);
         return;
       }
 
-      // First groove bar back after a bump+settle (or after no settle):
-      // unfreeze the ramp timer and start its countdown from scratch.
+      // 3. First groove bar back after bump (+ settle, if any): unfreeze
+      //    the ramp timer and restart its countdown from zero.
       if (timerFrozenRef.current) {
         timerFrozenRef.current = false;
         elapsedRef.current = 0;
