@@ -1207,3 +1207,14 @@
   from { opacity: .6; }
   to   { opacity: 1; }
 }
+
+/* Practice: waiting for the current groove bar to end before bumping BPM. */
+.prac-ramp-bar.awaiting { border-color: var(--accent); }
+.prac-ramp-bar.awaiting .prac-ramp-fill {
+  background: var(--accent);
+  animation: pracAwaitPulse .6s ease-in-out infinite alternate;
+}
+@keyframes pracAwaitPulse {
+  from { opacity: .55; }
+  to   { opacity: 1; }
+}

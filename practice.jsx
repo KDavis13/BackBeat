@@ -100,6 +100,9 @@ function Practice({ onomaItems, openOnomaScreen }) {
   // Settling: brief click-only window right after a BPM bump so the drummer
   // can lock in to the new tempo before the groove kicks back in.
   const [settleRemaining, setSettleRemaining] = React.useState(0);
+  // True between the ramp timer hitting the threshold and the actual bump
+  // (which is bar-aligned — we wait for the current groove bar to end).
+  const [awaitingBump, setAwaitingBump] = React.useState(false);
 
   const groove = (onomaItems || []).find((o) => o.id === settings.grooveId);
 
@@ -115,6 +118,14 @@ function Practice({ onomaItems, openOnomaScreen }) {
   // so the settle-window starts on a bar boundary, not mid-bar.
   const pendingSettleRef = React.useRef(0);
   const settleRemainingRef = React.useRef(0);
+  // Bar-aligned ramp:
+  // - pendingBumpRef: timer hit the threshold; waiting for next downbeat
+  //   to apply the BPM bump and (optionally) arm the settle window.
+  // - timerFrozenRef: while true the ramp timer doesn't increment — covers
+  //   the "groove finishes its bar" gap AND the settle window so the
+  //   countdown only starts the next time the groove is actually playing.
+  const pendingBumpRef = React.useRef(false);
+  const timerFrozenRef = React.useRef(false);
 
   // Cleanup on unmount
   React.useEffect(() => () => {
@@ -137,7 +148,10 @@ function Practice({ onomaItems, openOnomaScreen }) {
     if (!running) setBpm(settings.startBpm);
   }, [settings.startBpm]);
 
-  // Tempo ramp ticker.
+  // Tempo ramp ticker. Total time always counts. The ramp countdown
+  // (elapsedSec) freezes while the groove is finishing its bar or while
+  // we're inside the settle window — only resumes when the groove is
+  // audibly playing at the new tempo.
   React.useEffect(() => {
     if (!running) return;
     let lastTick = performance.now();
@@ -145,27 +159,19 @@ function Practice({ onomaItems, openOnomaScreen }) {
       const now = performance.now();
       const dt = (now - lastTick) / 1000;
       lastTick = now;
-      elapsedRef.current += dt;
       totalRef.current += dt;
-      let bump = false;
-      if (elapsedRef.current >= settings.rampIntervalSec) {
-        elapsedRef.current -= settings.rampIntervalSec;
-        bump = true;
+      setTotalSec(totalRef.current);
+      if (timerFrozenRef.current) return;
+      elapsedRef.current += dt;
+      // Threshold hit → arm a pending bump and freeze the timer. The
+      // actual setBpm happens on the next downbeat (bar-aligned).
+      if (!pendingBumpRef.current && elapsedRef.current >= settings.rampIntervalSec) {
+        pendingBumpRef.current = true;
+        timerFrozenRef.current = true;
+        elapsedRef.current = settings.rampIntervalSec; // clamp for UI
+        setAwaitingBump(true);
       }
       setElapsedSec(elapsedRef.current);
-      setTotalSec(totalRef.current);
-      if (bump) {
-        setBpm((b) => {
-          const cap = settings.maxBpm > 0 ? settings.maxBpm : Infinity;
-          const next = Math.min(b + settings.rampStep, cap);
-          // Only enter settle mode if the BPM actually changed (didn't
-          // hit the cap and stay).
-          if (next > b && settings.settleBars > 0) {
-            pendingSettleRef.current = settings.settleBars;
-          }
-          return next;
-        });
-      }
     }, 100);
     return () => clearInterval(id);
   }, [running, settings.rampIntervalSec, settings.rampStep, settings.maxBpm, settings.settleBars]);
@@ -187,7 +193,10 @@ function Practice({ onomaItems, openOnomaScreen }) {
     lastPatternRef.current = -1;
     pendingSettleRef.current = 0;
     settleRemainingRef.current = 0;
+    pendingBumpRef.current = false;
+    timerFrozenRef.current = false;
     setSettleRemaining(0);
+    setAwaitingBump(false);
     try { unsubRef.current && unsubRef.current(); } catch (e) {}
     unsubRef.current = m.subscribe((ev) => {
       if (ev.type !== 'beat') return;
@@ -196,7 +205,21 @@ function Practice({ onomaItems, openOnomaScreen }) {
       const barDur = (60 / m.bpm) * beatsPerBar;
       barRef.current = { start: ev.time, dur: barDur };
 
-      // BPM just changed → enter the settle window on this downbeat.
+      // Bar-aligned bump: ramp timer hit threshold earlier; apply the
+      // BPM change here so the previous bar finished at the old tempo.
+      if (pendingBumpRef.current) {
+        pendingBumpRef.current = false;
+        setAwaitingBump(false);
+        setBpm((b) => {
+          const cap = settings.maxBpm > 0 ? settings.maxBpm : Infinity;
+          const next = Math.min(b + settings.rampStep, cap);
+          if (next > b && settings.settleBars > 0) {
+            pendingSettleRef.current = settings.settleBars;
+          }
+          return next;
+        });
+      }
+
       if (pendingSettleRef.current > 0) {
         settleRemainingRef.current = pendingSettleRef.current;
         pendingSettleRef.current = 0;
@@ -204,11 +227,20 @@ function Practice({ onomaItems, openOnomaScreen }) {
       }
 
       if (settleRemainingRef.current > 0) {
-        // Click-only bar: don't schedule groove hits, don't tally a loop.
+        // Click-only bar: don't schedule groove hits, don't tally a loop,
+        // and the ramp timer stays frozen.
         settleRemainingRef.current -= 1;
         setSettleRemaining(settleRemainingRef.current);
         lastPatternRef.current = Math.floor(ev.beat / beatsPerBar);
         return;
+      }
+
+      // First groove bar back after a bump+settle (or after no settle):
+      // unfreeze the ramp timer and start its countdown from scratch.
+      if (timerFrozenRef.current) {
+        timerFrozenRef.current = false;
+        elapsedRef.current = 0;
+        setElapsedSec(0);
       }
 
       groove.hits.forEach((h) => {
@@ -274,7 +306,10 @@ function Practice({ onomaItems, openOnomaScreen }) {
     lastPatternRef.current = -1;
     pendingSettleRef.current = 0;
     settleRemainingRef.current = 0;
+    pendingBumpRef.current = false;
+    timerFrozenRef.current = false;
     setSettleRemaining(0);
+    setAwaitingBump(false);
     setElapsedSec(0);
     setTotalSec(0);
     setLoopCount(0);
@@ -391,7 +426,9 @@ function Practice({ onomaItems, openOnomaScreen }) {
 
           <div className="prac-ramp">
             <div className="prac-ramp-text">
-              {settleRemaining > 0 ? (
+              {awaitingBump ? (
+                <>esperando final del compás para subir a <b className="num-mono">{nextBpm}</b> BPM…</>
+              ) : settleRemaining > 0 ? (
                 <>adaptándose · <b className="num-mono">{settleRemaining}</b> {settleRemaining === 1 ? 'compás' : 'compases'} de solo metrónomo</>
               ) : atMax ? (
                 <>Tope alcanzado · <b className="num-mono">{settings.maxBpm}</b> BPM</>
@@ -400,7 +437,7 @@ function Practice({ onomaItems, openOnomaScreen }) {
                   {running && <> en <b className="num-mono">{remainingToRamp}</b>s</>}</>
               )}
             </div>
-            <div className={`prac-ramp-bar${settleRemaining > 0 ? ' settling' : ''}`}>
+            <div className={`prac-ramp-bar${settleRemaining > 0 ? ' settling' : ''}${awaitingBump ? ' awaiting' : ''}`}>
               <div className="prac-ramp-fill" style={{ width: `${rampFillPct}%` }} />
             </div>
           </div>
