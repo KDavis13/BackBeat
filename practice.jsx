@@ -164,6 +164,8 @@ function Practice({ onomaItems, openOnomaScreen }) {
     m.setSubdivision(fineRes);
     m.setBpm(bpm);
     m.setSilent(!metroClick);
+    // Click only on the quarter pulse, not on every fine tick.
+    m.setClickQuartersOnly(true);
 
     // Map every cell hit to a fine step inside the bar (LCM grid lets
     // negras / corcheas / tresillos / semicorcheas / sextillos coexist).

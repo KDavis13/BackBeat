@@ -221,6 +221,9 @@ function OnomaEditorPanel({ pattern, onChange, onDelete, bpm, onBpmChange }) {
     metro.setBeatsPerBar(beatsPerBar);
     metro.setSilent(!metroClick);
     metro.setSubdivision(fineRes);
+    // Click only on quarters — the engine runs at fineRes=12 but musically
+    // we want the pulse, not 12 clicks per beat.
+    metro.setClickQuartersOnly(true);
 
     const myToken = ++playTokenRef.current;
     setPlaying(true);

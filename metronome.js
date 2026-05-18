@@ -86,8 +86,16 @@
 
     setBpm(bpm) { this.bpm = Math.max(20, Math.min(300, Number(bpm) || 100)); }
     setBeatsPerBar(n) { this.beatsPerBar = Math.max(1, Math.min(16, Number(n) || 4)); }
-    setSubdivision(s) { this.subdivision = [1,2,3,4].includes(Number(s)) ? Number(s) : 1; }
+    setSubdivision(s) {
+      const n = Number(s);
+      this.subdivision = (Number.isFinite(n) && n >= 1 && n <= 48) ? Math.floor(n) : 1;
+    }
     setSilent(v) { this._silent = !!v; }
+    /** Suppress click on every event that isn't a quarter-note beat.
+     *  Useful when the scheduler runs at a fine subdivision (e.g. 12 for
+     *  mixed-density grooves) — without this we'd hear a click on every
+     *  fine step instead of just on the pulse. */
+    setClickQuartersOnly(v) { this._clickQuartersOnly = !!v; }
     setAccentBeats(indices) { this._accentBeats = new Set(indices || []); }
 
     /** Suppress the metronome click within [when, when+duration].
