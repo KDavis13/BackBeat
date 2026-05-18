@@ -218,25 +218,13 @@ function usePlayerEngine(song, onomaItems, tweaks) {
       // Step tracking for the overlay
       let activeOnomaStep = -1;
       if (activeOnoma) {
-        // Fraction of the (song) bar elapsed → fraction of the groove bar →
-        // closest cellIdx in the groove. Works for grooves with mixed
-        // per-beat subdivisions.
+        // Fraction of the song bar elapsed maps directly to the groove
+        // bar (we play one groove bar per song bar). Works for any
+        // per-beat subdivision the groove uses.
         const subsInSongBar = subdivision * song.beatsPerBar;
         const subWithinSongBar = (beatInBar * subdivision) + subOfBeat;
-        const fineRes = window.BBData.GROOVE_FINE_RES;
-        const grooveBeats = window.BBData.grooveBeatsPerBar(activeOnoma);
         const fraction = subWithinSongBar / subsInSongBar;
-        const fineInGroove = Math.floor(fraction * grooveBeats * fineRes);
-        const exact = window.BBData.grooveCellAtFineStep(activeOnoma, fineInGroove, fineRes);
-        if (exact >= 0) {
-          activeOnomaStep = exact;
-        } else {
-          // Land on the previous cell so the syllable that's currently
-          // sounding stays lit between exact hits.
-          const totalCells = window.BBData.grooveTotalCells(activeOnoma);
-          const approx = Math.floor(fraction * totalCells);
-          activeOnomaStep = Math.max(0, Math.min(totalCells - 1, approx));
-        }
+        activeOnomaStep = window.BBData.grooveCellAtFraction(activeOnoma, fraction);
       }
 
       phaseRef.current.lastTime = performance.now();

@@ -17,7 +17,11 @@ const BEAT_SUB_GLYPHS = {
   2: '♫', // corchea
   3: '³', // tresillo
   4: '♬', // semicorchea
+  5: '⁵', // quintillo
   6: '⁶', // sextillo
+  7: '⁷', // septillo
+  8: '⁸', // 32nd-notes
+  9: '⁹', // novillo
 };
 
 /** Single Web Audio Metronome used for preview across the page. */
@@ -202,55 +206,75 @@ function OnomaEditorPanel({ pattern, onChange, onDelete, bpm, onBpmChange }) {
   const [currentStep, setCurrentStep] = React.useState(-1);
   const [editingStep, setEditingStep] = React.useState(null);
   const playTokenRef = React.useRef(0);
+  // Last bar's downbeat audio time + duration — read by the rAF viz to
+  // light the current cell at any fractional position inside the bar.
+  const barRef = React.useRef({ start: 0, dur: 0 });
 
   const stop = React.useCallback(() => {
     metro.stop();
     setPlaying(false);
     setCurrentStep(-1);
+    barRef.current = { start: 0, dur: 0 };
     playTokenRef.current++;
   }, [metro]);
 
   React.useEffect(() => () => stop(), [stop]);
   React.useEffect(() => { metro.setSilent(!metroClick); }, [metroClick, metro]);
 
+  // rAF viz: read audio time → fraction in bar → cellIdx. Works for any
+  // subdivisions because it doesn't rely on a fine integer grid.
+  React.useEffect(() => {
+    if (!playing) return;
+    let raf;
+    const tick = () => {
+      const ctx = metro.ctx;
+      const { start, dur } = barRef.current;
+      if (ctx && dur > 0 && start > 0) {
+        const elapsed = ctx.currentTime - start;
+        if (elapsed >= 0) {
+          const fraction = (elapsed % dur) / dur;
+          const cellIdx = window.BBData.grooveCellAtFraction(pattern, fraction);
+          setCurrentStep(cellIdx);
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [playing, pattern, metro]);
+
   const play = async () => {
     await metro.init();
     metro.setBpm(bpm);
     const beatsPerBar = window.BBData.grooveBeatsPerBar(pattern);
-    const fineRes = window.BBData.GROOVE_FINE_RES;
     metro.setBeatsPerBar(beatsPerBar);
     metro.setSilent(!metroClick);
-    metro.setSubdivision(fineRes);
-    // Click only on quarters — the engine runs at fineRes=12 but musically
-    // we want the pulse, not 12 clicks per beat.
-    metro.setClickQuartersOnly(true);
+    // Engine ticks at quarters — every hit is scheduled at its exact
+    // fractional time on each downbeat. Supports any per-beat subdivision
+    // (1..9), not just those that divide fineRes evenly.
+    metro.setSubdivision(1);
+    metro.setClickQuartersOnly(false);
 
     const myToken = ++playTokenRef.current;
     setPlaying(true);
-    // Map each cell hit to a fine step inside the bar.
-    const fineToHits = new Map();
-    pattern.hits.forEach((h) => {
-      const fineStep = window.BBData.grooveFineStepForCell(pattern, h.step, fineRes);
-      const arr = fineToHits.get(fineStep) || [];
-      arr.push(h);
-      fineToHits.set(fineStep, arr);
-    });
-    const fineInBar = fineRes * beatsPerBar;
 
     const unsub = metro.subscribe((ev) => {
       if (playTokenRef.current !== myToken) return;
       if (ev.type !== 'beat') return;
-      const fine = ((ev.sub % fineInBar) + fineInBar) % fineInBar;
-      const hits = fineToHits.get(fine);
-      if (hits) hits.forEach((h) => metro.schedulePerc(ev.time, h.sound, h.velocity));
-      const cellIdx = window.BBData.grooveCellAtFineStep(pattern, fine, fineRes);
-      if (cellIdx >= 0) setCurrentStep(cellIdx);
-      if (!loop && ev.sub >= fineInBar - 1) {
-        setTimeout(() => { if (playTokenRef.current === myToken) stop(); }, 200);
+      const beatInBar = ev.beat % beatsPerBar;
+      if (beatInBar !== 0) return;
+      const barDur = (60 / metro.bpm) * beatsPerBar;
+      barRef.current = { start: ev.time, dur: barDur };
+      pattern.hits.forEach((h) => {
+        const off = window.BBData.grooveOffsetInBar(pattern, h.step) * barDur;
+        metro.schedulePerc(ev.time + off, h.sound, h.velocity);
+      });
+      if (!loop && ev.beat >= beatsPerBar) {
+        setTimeout(() => { if (playTokenRef.current === myToken) stop(); }, barDur * 1000 + 200);
       }
     });
 
-    await metro.start({ bpm, beatsPerBar, subdivision: fineRes });
+    await metro.start({ bpm, beatsPerBar, subdivision: 1 });
     // teardown when stopped externally
     const checkStop = setInterval(() => {
       if (!metro.running || playTokenRef.current !== myToken) {

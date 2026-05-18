@@ -260,7 +260,9 @@
   //   16th / sextuplet. Fine grid uses lcm(1..6) = 12.
   // `hits[i].step` stays as a linear cell index 0..sum(beatSubdivisions)-1.
   const GROOVE_FINE_RES = 12;
-  const GROOVE_SUBS_ALLOWED = [1, 2, 3, 4, 6];
+  // Allowed per-beat subdivisions. Anything in 1..9 is supported by the
+  // schedule-on-downbeat + rAF playback path (see onoma.jsx / practice.jsx).
+  const GROOVE_SUBS_ALLOWED = [1, 2, 3, 4, 5, 6, 7, 8, 9];
   function migrateGrooveShape(p) {
     if (!p || !Array.isArray(p.hits)) return p;
     if (Array.isArray(p.beatSubdivisions) && p.beatSubdivisions.length > 0) return p;
@@ -325,7 +327,26 @@
     return pos.beat * fineRes
       + Math.round((pos.subInBeat / Math.max(1, subs[pos.beat])) * fineRes);
   }
-  /** Reverse lookup: which cellIdx (if any) starts at this fine step. */
+  /** Reverse lookup from a 0..1 fraction of the bar to the cell that owns
+   *  it. Used by the rAF viz: works for any subdivisions, no fine grid. */
+  function grooveCellAtFraction(g, fraction) {
+    const subs = grooveBeatSubs(g);
+    const bpb = subs.length;
+    let f = Number.isFinite(fraction) ? fraction : 0;
+    if (f < 0) f = 0;
+    if (f >= 1) f = ((f % 1) + 1) % 1;
+    const beatIdx = Math.min(bpb - 1, Math.floor(f * bpb));
+    const beatFraction = 1 / bpb;
+    const local = (f - beatIdx * beatFraction) / beatFraction;
+    const n = Math.max(1, subs[beatIdx]);
+    const subInBeat = Math.min(n - 1, Math.max(0, Math.floor(local * n)));
+    let acc = 0;
+    for (let i = 0; i < beatIdx; i++) acc += subs[i];
+    return acc + subInBeat;
+  }
+  /** Reverse lookup: which cellIdx (if any) starts at this fine step.
+   *  Only exact for subdivisions that divide `fineRes` evenly — kept for
+   *  back-compat with the {1,2,3,4,6} fast path. */
   function grooveCellAtFineStep(g, fineStep, fineRes) {
     const subs = grooveBeatSubs(g);
     if (fineStep < 0 || fineStep >= fineRes * subs.length) return -1;
@@ -486,6 +507,7 @@
     grooveBeatsPerBar, grooveBeatSubs, grooveTotalCells,
     grooveCellPosition, grooveOffsetInBar,
     grooveFineStepForCell, grooveCellAtFineStep,
+    grooveCellAtFraction,
     COLORS, getColor, SAMPLE: SONGS, SAMPLE_ONOMA: ONOMATOPOEIAS,
   };
 })();

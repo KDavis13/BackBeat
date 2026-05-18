@@ -105,6 +105,8 @@ function Practice({ onomaItems, openOnomaScreen }) {
   const lastPatternRef = React.useRef(-1);
   const elapsedRef = React.useRef(0);
   const totalRef = React.useRef(0);
+  // Last bar's downbeat audio time + duration — read by the rAF viz.
+  const barRef = React.useRef({ start: 0, dur: 0 });
 
   // Cleanup on unmount
   React.useEffect(() => () => {
@@ -159,35 +161,28 @@ function Practice({ onomaItems, openOnomaScreen }) {
     const m = metroRef.current;
     await m.init();
     const beatsPerBar = window.BBData.grooveBeatsPerBar(groove);
-    const fineRes = window.BBData.GROOVE_FINE_RES;
     m.setBeatsPerBar(beatsPerBar);
-    m.setSubdivision(fineRes);
+    // Engine ticks at quarters; every hit is scheduled at its exact
+    // fractional time on each downbeat. Lets us support any per-beat
+    // subdivision (1..9).
+    m.setSubdivision(1);
     m.setBpm(bpm);
     m.setSilent(!metroClick);
-    // Click only on the quarter pulse, not on every fine tick.
-    m.setClickQuartersOnly(true);
-
-    // Map every cell hit to a fine step inside the bar (LCM grid lets
-    // negras / corcheas / tresillos / semicorcheas / sextillos coexist).
-    const fineToHits = new Map();
-    groove.hits.forEach((h) => {
-      const fineStep = window.BBData.grooveFineStepForCell(groove, h.step, fineRes);
-      const arr = fineToHits.get(fineStep) || [];
-      arr.push(h);
-      fineToHits.set(fineStep, arr);
-    });
-    const fineInBar = fineRes * beatsPerBar;
+    m.setClickQuartersOnly(false);
 
     lastPatternRef.current = -1;
     try { unsubRef.current && unsubRef.current(); } catch (e) {}
     unsubRef.current = m.subscribe((ev) => {
       if (ev.type !== 'beat') return;
-      const fine = ((ev.sub % fineInBar) + fineInBar) % fineInBar;
-      const hits = fineToHits.get(fine);
-      if (hits) hits.forEach((h) => m.schedulePerc(ev.time, h.sound, h.velocity));
-      const cellIdx = window.BBData.grooveCellAtFineStep(groove, fine, fineRes);
-      if (cellIdx >= 0) setCurrentStep(cellIdx);
-      const patternIdx = Math.floor(ev.sub / fineInBar);
+      const beatInBar = ev.beat % beatsPerBar;
+      if (beatInBar !== 0) return;
+      const barDur = (60 / m.bpm) * beatsPerBar;
+      barRef.current = { start: ev.time, dur: barDur };
+      groove.hits.forEach((h) => {
+        const off = window.BBData.grooveOffsetInBar(groove, h.step) * barDur;
+        m.schedulePerc(ev.time + off, h.sound, h.velocity);
+      });
+      const patternIdx = Math.floor(ev.beat / beatsPerBar);
       if (patternIdx !== lastPatternRef.current) {
         if (lastPatternRef.current >= 0 && patternIdx > lastPatternRef.current) {
           setLoopCount((c) => c + 1);
@@ -196,7 +191,7 @@ function Practice({ onomaItems, openOnomaScreen }) {
       }
     });
 
-    await m.start({ bpm, beatsPerBar, subdivision: fineRes, startBeat: 0 });
+    await m.start({ bpm, beatsPerBar, subdivision: 1, startBeat: 0 });
     setRunning(true);
   };
 
@@ -205,9 +200,31 @@ function Practice({ onomaItems, openOnomaScreen }) {
     if (m) m.stop();
     try { unsubRef.current && unsubRef.current(); } catch (e) {}
     unsubRef.current = null;
+    barRef.current = { start: 0, dur: 0 };
     setRunning(false);
     setCurrentStep(-1);
   };
+
+  // rAF viz: derive currentStep from audio time → fraction → cell.
+  React.useEffect(() => {
+    if (!running || !groove) return;
+    let raf;
+    const tick = () => {
+      const m = metroRef.current;
+      const { start, dur } = barRef.current;
+      if (m && m.ctx && dur > 0 && start > 0) {
+        const elapsed = m.ctx.currentTime - start;
+        if (elapsed >= 0) {
+          const fraction = (elapsed % dur) / dur;
+          const cellIdx = window.BBData.grooveCellAtFraction(groove, fraction);
+          setCurrentStep(cellIdx);
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [running, groove]);
 
   const reset = () => {
     pause();
