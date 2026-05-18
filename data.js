@@ -254,6 +254,25 @@
   // the new kit naming, so existing patterns render their hits on the right
   // editor row.
   const SOUND_ALIASES = { 'tom-hi': 'tom1', 'tom-low': 'tom2' };
+  // Groove schema v2: per-beat subdivisions. `beatsPerBar` and
+  // `beatSubdivisions` replace the implicit uniform `resolution`.
+  //   beatSubdivisions[i] ∈ {1, 2, 3, 4, 6} — quarter / 8th / triplet /
+  //   16th / sextuplet. Fine grid uses lcm(1..6) = 12.
+  // `hits[i].step` stays as a linear cell index 0..sum(beatSubdivisions)-1.
+  const GROOVE_FINE_RES = 12;
+  const GROOVE_SUBS_ALLOWED = [1, 2, 3, 4, 6];
+  function migrateGrooveShape(p) {
+    if (!p || !Array.isArray(p.hits)) return p;
+    if (Array.isArray(p.beatSubdivisions) && p.beatSubdivisions.length > 0) return p;
+    const beatsPerBar = p.beatsPerBar || 4;
+    const r = p.resolution || 16;
+    const subsPerBeat = Math.max(1, Math.round(r / beatsPerBar));
+    return {
+      ...p,
+      beatsPerBar,
+      beatSubdivisions: Array.from({ length: beatsPerBar }, () => subsPerBeat),
+    };
+  }
   function migrateGroove(p) {
     if (!p || !Array.isArray(p.hits)) return p;
     let changed = false;
@@ -262,7 +281,64 @@
       if (renamed) { changed = true; return { ...h, sound: renamed }; }
       return h;
     });
-    return changed ? { ...p, hits } : p;
+    const sounded = changed ? { ...p, hits } : p;
+    return migrateGrooveShape(sounded);
+  }
+
+  // ── Groove helpers (per-beat subdivisions) ──────────────────────────
+  function grooveBeatsPerBar(g) { return (g && g.beatsPerBar) || 4; }
+  function grooveBeatSubs(g) {
+    if (g && Array.isArray(g.beatSubdivisions) && g.beatSubdivisions.length > 0) return g.beatSubdivisions;
+    const bpb = grooveBeatsPerBar(g);
+    const r = (g && g.resolution) || 16;
+    const each = Math.max(1, Math.round(r / bpb));
+    return Array.from({ length: bpb }, () => each);
+  }
+  function grooveTotalCells(g) {
+    return grooveBeatSubs(g).reduce((a, b) => a + b, 0);
+  }
+  /** {beat, subInBeat} for a flat cell index. */
+  function grooveCellPosition(g, cellIdx) {
+    const subs = grooveBeatSubs(g);
+    let cum = 0;
+    for (let b = 0; b < subs.length; b++) {
+      if (cum + subs[b] > cellIdx) return { beat: b, subInBeat: cellIdx - cum };
+      cum += subs[b];
+    }
+    return { beat: subs.length - 1, subInBeat: subs[subs.length - 1] - 1 };
+  }
+  /** Fraction of the groove's bar (0..1) where this cell lives. */
+  function grooveOffsetInBar(g, cellIdx) {
+    const subs = grooveBeatSubs(g);
+    const bpb = subs.length;
+    const pos = grooveCellPosition(g, cellIdx);
+    const beatFraction = 1 / bpb;
+    const subDen = Math.max(1, subs[pos.beat]);
+    return pos.beat * beatFraction + (pos.subInBeat / subDen) * beatFraction;
+  }
+  /** Fine step (0..fineRes*beatsPerBar) inside the bar where this cell
+   *  falls. `fineRes` should be divisible by every entry of beatSubdivisions
+   *  for this to be exact. With fineRes=12 it's exact for {1,2,3,4,6}. */
+  function grooveFineStepForCell(g, cellIdx, fineRes) {
+    const subs = grooveBeatSubs(g);
+    const pos = grooveCellPosition(g, cellIdx);
+    return pos.beat * fineRes
+      + Math.round((pos.subInBeat / Math.max(1, subs[pos.beat])) * fineRes);
+  }
+  /** Reverse lookup: which cellIdx (if any) starts at this fine step. */
+  function grooveCellAtFineStep(g, fineStep, fineRes) {
+    const subs = grooveBeatSubs(g);
+    if (fineStep < 0 || fineStep >= fineRes * subs.length) return -1;
+    const beatIdx = Math.floor(fineStep / fineRes);
+    const fineInBeat = fineStep % fineRes;
+    const n = Math.max(1, subs[beatIdx]);
+    const cellWidth = fineRes / n;
+    if (Math.abs(fineInBeat / cellWidth - Math.round(fineInBeat / cellWidth)) > 0.001) return -1;
+    const subInBeat = Math.round(fineInBeat / cellWidth);
+    if (subInBeat >= n) return -1;
+    let acc = 0;
+    for (let i = 0; i < beatIdx; i++) acc += subs[i];
+    return acc + subInBeat;
   }
   function loadOnoma() {
     try {
@@ -365,7 +441,13 @@
     };
   }
   function blankOnoma() {
-    return { id: uid(), name: 'Nuevo patrón', resolution: 16, hits: [] };
+    return {
+      id: uid(), name: 'Nuevo groove',
+      beatsPerBar: 4,
+      beatSubdivisions: [4, 4, 4, 4],
+      resolution: 16, // kept for back-compat with code that still reads it
+      hits: [],
+    };
   }
 
   /** Deep clone with regenerated ids (for duplicate). */
@@ -400,6 +482,10 @@
     cloneWithIds,
     sectionBars, totalBars, locate, sectionStartBar, buildSchedule,
     cueOnomaIds,
+    GROOVE_FINE_RES, GROOVE_SUBS_ALLOWED,
+    grooveBeatsPerBar, grooveBeatSubs, grooveTotalCells,
+    grooveCellPosition, grooveOffsetInBar,
+    grooveFineStepForCell, grooveCellAtFineStep,
     COLORS, getColor, SAMPLE: SONGS, SAMPLE_ONOMA: ONOMATOPOEIAS,
   };
 })();

@@ -170,8 +170,13 @@ function usePlayerEngine(song, onomaItems, tweaks) {
         fillFiredRef.current = fillKey;
         const barDur = (60 / m.bpm) * song.beatsPerBar;
         if (activeOnoma) {
+          // Schedule each hit at its exact fractional offset inside the
+          // groove's bar — respects per-beat subdivisions (mixed negras /
+          // corcheas / tresillos…) instead of assuming uniform spacing.
+          const grooveBeats = window.BBData.grooveBeatsPerBar(activeOnoma);
+          const grooveBarDur = (60 / m.bpm) * grooveBeats;
           activeOnoma.hits.forEach((h) => {
-            const offset = (h.step / activeOnoma.resolution) * barDur;
+            const offset = window.BBData.grooveOffsetInBar(activeOnoma, h.step) * grooveBarDur;
             m.schedulePerc(ev.time + offset, h.sound, h.velocity);
           });
         }
@@ -213,9 +218,25 @@ function usePlayerEngine(song, onomaItems, tweaks) {
       // Step tracking for the overlay
       let activeOnomaStep = -1;
       if (activeOnoma) {
-        const subsInBar = subdivision * song.beatsPerBar;
-        const subWithinBar = (beatInBar * subdivision) + subOfBeat;
-        activeOnomaStep = Math.floor((subWithinBar / subsInBar) * activeOnoma.resolution);
+        // Fraction of the (song) bar elapsed → fraction of the groove bar →
+        // closest cellIdx in the groove. Works for grooves with mixed
+        // per-beat subdivisions.
+        const subsInSongBar = subdivision * song.beatsPerBar;
+        const subWithinSongBar = (beatInBar * subdivision) + subOfBeat;
+        const fineRes = window.BBData.GROOVE_FINE_RES;
+        const grooveBeats = window.BBData.grooveBeatsPerBar(activeOnoma);
+        const fraction = subWithinSongBar / subsInSongBar;
+        const fineInGroove = Math.floor(fraction * grooveBeats * fineRes);
+        const exact = window.BBData.grooveCellAtFineStep(activeOnoma, fineInGroove, fineRes);
+        if (exact >= 0) {
+          activeOnomaStep = exact;
+        } else {
+          // Land on the previous cell so the syllable that's currently
+          // sounding stays lit between exact hits.
+          const totalCells = window.BBData.grooveTotalCells(activeOnoma);
+          const approx = Math.floor(fraction * totalCells);
+          activeOnomaStep = Math.max(0, Math.min(totalCells - 1, approx));
+        }
       }
 
       phaseRef.current.lastTime = performance.now();
@@ -489,7 +510,10 @@ function SectionSidebar({ song, eng }) {
 
 function OnomaOverlay({ onoma, currentStep, beatsPerBar, label }) {
   if (!onoma) return null;
-  const stepsPerBeat = onoma.resolution / beatsPerBar;
+  const grooveBeats = window.BBData.grooveBeatsPerBar(onoma);
+  const beatSubs = window.BBData.grooveBeatSubs(onoma);
+  const beatStart = [0];
+  beatSubs.forEach((n) => beatStart.push(beatStart[beatStart.length - 1] + n));
   const syllables = [];
   const seenSteps = new Set();
   onoma.hits.slice().sort((a, b) => a.step - b.step).forEach((h) => {
@@ -511,15 +535,19 @@ function OnomaOverlay({ onoma, currentStep, beatsPerBar, label }) {
           );
         })}
       </div>
-      <div className="onoma-overlay-track" style={{ '--steps': onoma.resolution }}>
-        {Array.from({ length: onoma.resolution }).map((_, i) => {
-          const isBeat = i % stepsPerBeat === 0;
-          const has = onoma.hits.some((h) => h.step === i);
-          return (
-            <span key={i}
-                  className={`onoma-track-step${isBeat ? ' beat' : ''}${has ? ' has' : ''}${i === currentStep ? ' on' : ''}`} />
-          );
-        })}
+      <div className="onoma-overlay-track" style={{ '--bpb': grooveBeats }}>
+        {beatSubs.map((subs, b) => (
+          <div key={b} className="onoma-overlay-beat" style={{ '--subs': subs }}>
+            {Array.from({ length: subs }).map((_, sub) => {
+              const cellIdx = beatStart[b] + sub;
+              const has = onoma.hits.some((h) => h.step === cellIdx);
+              return (
+                <span key={sub}
+                      className={`onoma-track-step${sub === 0 ? ' beat' : ''}${has ? ' has' : ''}${cellIdx === currentStep ? ' on' : ''}`} />
+              );
+            })}
+          </div>
+        ))}
       </div>
     </div>
   );

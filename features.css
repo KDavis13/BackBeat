@@ -366,9 +366,15 @@
 }
 .onoma-overlay-track {
   display: grid;
-  grid-template-columns: repeat(var(--steps), 1fr);
-  gap: 2px;
+  grid-template-columns: repeat(var(--bpb, 4), 1fr);
+  gap: 6px;
   height: 10px;
+  width: 100%;
+}
+.onoma-overlay-beat {
+  display: grid;
+  grid-template-columns: repeat(var(--subs, 4), 1fr);
+  gap: 2px;
 }
 .onoma-track-step {
   background: var(--bg-elev-2);
@@ -502,30 +508,54 @@
 }
 .onoma-grid-head,
 .onoma-grid-row,
-.onoma-grid-syll {
+.onoma-grid-syll-row {
   display: grid;
-  grid-template-columns: 110px repeat(var(--steps, 16), minmax(28px, 1fr));
-  gap: 2px;
+  grid-template-columns: 110px 1fr;
+  gap: 6px;
   align-items: stretch;
   margin-bottom: 2px;
 }
 .onoma-grid-head-spacer { }
-.onoma-grid-step-head {
-  height: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  color: var(--text-muted);
+/* Per-beat sub-grids: each beat column takes the same horizontal space,
+ * regardless of how many cells live inside it. */
+.onoma-grid-beats,
+.onoma-grid-cells {
+  display: grid;
+  grid-template-columns: repeat(var(--bpb, 4), 1fr);
+  gap: 6px;
 }
-.onoma-grid-step-head.beat {
+.onoma-grid-beat-col {
+  display: grid;
+  grid-template-columns: repeat(var(--subs, 4), minmax(0, 1fr));
+  gap: 2px;
+}
+.onoma-grid-beat-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 0 4px;
   border-bottom: 1px solid var(--border);
+}
+.onoma-grid-beat-head.on { border-bottom-color: var(--accent); }
+.onoma-beat-num {
+  font-size: 11px;
   color: var(--text-dim);
   font-weight: 700;
+  letter-spacing: 0.04em;
 }
-.onoma-grid-step-head.on { color: var(--accent); }
+.onoma-grid-beat-head.on .onoma-beat-num { color: var(--accent); }
+.onoma-beat-sub {
+  height: 24px;
+  padding: 0 6px;
+  text-align: center;
+  width: auto;
+  font-size: 14px;
+  line-height: 1;
+  font-family: var(--font-mono);
+}
 
-.onoma-grid-row { height: 36px; }
+.onoma-grid-row { min-height: 36px; }
 .onoma-grid-label {
   display: flex;
   align-items: center;
@@ -566,10 +596,11 @@
   opacity: .35;
 }
 
-.onoma-grid-syll {
+.onoma-grid-syll-row {
   border-top: 1px solid var(--border);
   margin-top: 4px;
   padding-top: 4px;
+  min-height: 32px;
 }
 .onoma-syll {
   display: flex;
@@ -1113,9 +1144,14 @@
 }
 .prac-viz-track {
   display: grid;
-  grid-template-columns: repeat(var(--steps), 1fr);
-  gap: 2px;
+  grid-template-columns: repeat(var(--bpb, 4), 1fr);
+  gap: 6px;
   width: 100%;
+}
+.prac-viz-beat {
+  display: grid;
+  grid-template-columns: repeat(var(--subs, 4), minmax(0, 1fr));
+  gap: 2px;
 }
 .prac-viz-step {
   height: 12px;

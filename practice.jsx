@@ -32,9 +32,13 @@ function practiceFormatTime(sec) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-/** Live viz of a groove: syllables (sorted by step) and a step track. */
+/** Live viz of a groove: syllables (sorted) and a per-beat track that
+ *  respects each beat's own subdivision (negras / corcheas / tresillos…). */
 function PracticeViz({ groove, currentStep }) {
-  const stepsPerBeat = groove.resolution / 4;
+  const beatsPerBar = window.BBData.grooveBeatsPerBar(groove);
+  const beatSubs = window.BBData.grooveBeatSubs(groove);
+  const beatStart = [0];
+  beatSubs.forEach((n) => beatStart.push(beatStart[beatStart.length - 1] + n));
   const syllables = [];
   const seen = new Set();
   groove.hits.slice().sort((a, b) => a.step - b.step).forEach((h) => {
@@ -56,15 +60,20 @@ function PracticeViz({ groove, currentStep }) {
           </span>
         ))}
       </div>
-      <div className="prac-viz-track" style={{ '--steps': groove.resolution }}>
-        {Array.from({ length: groove.resolution }).map((_, i) => {
-          const isBeat = i % stepsPerBeat === 0;
-          const has = groove.hits.some((h) => h.step === i);
-          return (
-            <span key={i}
-                  className={`prac-viz-step${isBeat ? ' beat' : ''}${has ? ' has' : ''}${i === currentStep ? ' on' : ''}`} />
-          );
-        })}
+      <div className="prac-viz-track" style={{ '--bpb': beatsPerBar }}>
+        {beatSubs.map((subs, b) => (
+          <div key={b} className="prac-viz-beat" style={{ '--subs': subs }}>
+            {Array.from({ length: subs }).map((_, sub) => {
+              const cellIdx = beatStart[b] + sub;
+              const has = groove.hits.some((h) => h.step === cellIdx);
+              const on = cellIdx === currentStep;
+              return (
+                <span key={sub}
+                      className={`prac-viz-step${sub === 0 ? ' beat' : ''}${has ? ' has' : ''}${on ? ' on' : ''}`} />
+              );
+            })}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -149,29 +158,34 @@ function Practice({ onomaItems, openOnomaScreen }) {
     if (!groove) return;
     const m = metroRef.current;
     await m.init();
-    const subMap = { 8: 2, 12: 3, 16: 4, 24: 6 };
-    const subdivision = subMap[groove.resolution] || 4;
-    m.setBeatsPerBar(4);
-    m.setSubdivision(subdivision);
+    const beatsPerBar = window.BBData.grooveBeatsPerBar(groove);
+    const fineRes = window.BBData.GROOVE_FINE_RES;
+    m.setBeatsPerBar(beatsPerBar);
+    m.setSubdivision(fineRes);
     m.setBpm(bpm);
     m.setSilent(!metroClick);
 
-    const hitMap = new Map();
+    // Map every cell hit to a fine step inside the bar (LCM grid lets
+    // negras / corcheas / tresillos / semicorcheas / sextillos coexist).
+    const fineToHits = new Map();
     groove.hits.forEach((h) => {
-      const arr = hitMap.get(h.step) || [];
+      const fineStep = window.BBData.grooveFineStepForCell(groove, h.step, fineRes);
+      const arr = fineToHits.get(fineStep) || [];
       arr.push(h);
-      hitMap.set(h.step, arr);
+      fineToHits.set(fineStep, arr);
     });
+    const fineInBar = fineRes * beatsPerBar;
 
     lastPatternRef.current = -1;
     try { unsubRef.current && unsubRef.current(); } catch (e) {}
     unsubRef.current = m.subscribe((ev) => {
       if (ev.type !== 'beat') return;
-      const step = ((ev.sub % groove.resolution) + groove.resolution) % groove.resolution;
-      const hits = hitMap.get(step);
+      const fine = ((ev.sub % fineInBar) + fineInBar) % fineInBar;
+      const hits = fineToHits.get(fine);
       if (hits) hits.forEach((h) => m.schedulePerc(ev.time, h.sound, h.velocity));
-      setCurrentStep(step);
-      const patternIdx = Math.floor(ev.sub / groove.resolution);
+      const cellIdx = window.BBData.grooveCellAtFineStep(groove, fine, fineRes);
+      if (cellIdx >= 0) setCurrentStep(cellIdx);
+      const patternIdx = Math.floor(ev.sub / fineInBar);
       if (patternIdx !== lastPatternRef.current) {
         if (lastPatternRef.current >= 0 && patternIdx > lastPatternRef.current) {
           setLoopCount((c) => c + 1);
@@ -180,7 +194,7 @@ function Practice({ onomaItems, openOnomaScreen }) {
       }
     });
 
-    await m.start({ bpm, beatsPerBar: 4, subdivision, startBeat: 0 });
+    await m.start({ bpm, beatsPerBar, subdivision: fineRes, startBeat: 0 });
     setRunning(true);
   };
 
@@ -240,7 +254,9 @@ function Practice({ onomaItems, openOnomaScreen }) {
                     onChange={(e) => updateSettings({ grooveId: e.target.value || null })}>
               <option value="">— elige uno —</option>
               {(onomaItems || []).map((o) => (
-                <option key={o.id} value={o.id}>{o.name} ({o.resolution}/comp)</option>
+                <option key={o.id} value={o.id}>
+                  {o.name} ({window.BBData.grooveBeatsPerBar(o)}/4)
+                </option>
               ))}
             </select>
           </div>
