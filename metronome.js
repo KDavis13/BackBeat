@@ -130,6 +130,15 @@
       this.nextTime = this.ctx.currentTime + 0.05;
       this.running = true;
       this._queue = [];
+      // Restore the master gain — stop() ramps it to 0 to cut in-flight
+      // audio on pause, so we have to bring it back on every resume.
+      if (this.master && this.ctx) {
+        try {
+          const t = this.ctx.currentTime;
+          this.master.gain.cancelScheduledValues(t);
+          this.master.gain.setValueAtTime(0.5, t);
+        } catch (e) {}
+      }
       this._tick();
     }
 
@@ -137,6 +146,19 @@
       this.running = false;
       if (this._tickId) { clearTimeout(this._tickId); this._tickId = null; }
       this._queue = [];
+      // Mute everything that's already been scheduled on the AudioContext
+      // (clicks + percussion in the ~100ms lookahead window). Without this
+      // the user keeps hearing the current bar finishing after Pause —
+      // Web Audio events fire at their scheduled times regardless of any
+      // higher-level "running" flag.
+      if (this.master && this.ctx) {
+        try {
+          const t = this.ctx.currentTime;
+          this.master.gain.cancelScheduledValues(t);
+          this.master.gain.setValueAtTime(this.master.gain.value, t);
+          this.master.gain.linearRampToValueAtTime(0, t + 0.01);
+        } catch (e) {}
+      }
     }
 
     _subDuration() { return 60.0 / this.bpm / this.subdivision; }
