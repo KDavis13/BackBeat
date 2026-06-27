@@ -1,0 +1,264 @@
+/* BackBeat — REDESIGN design language: "drum-machine cockpit".
+ * Hardware/instrument vibe: anodized panels, tactile pads, engraved labels,
+ * amber LCD readouts, glowing step LEDs. Primitives are scoped under .rd so
+ * they coexist with the legacy stylesheets while screens migrate one by one. */
+
+:root {
+  /* Base — warm espresso */
+  --rd-void: #07060a;            /* deepest backdrop */
+  --rd-case: #100d14;            /* device case */
+  --rd-panel: #17131b;           /* panel face */
+  --rd-panel-2: #1f1925;         /* raised panel */
+  --rd-ink: #1b1620;             /* engraved/recessed wells */
+
+  --rd-edge-hi: rgba(255,255,255,.07);   /* top bevel light */
+  --rd-edge-lo: rgba(0,0,0,.65);         /* bottom bevel shadow */
+  --rd-hair: rgba(255,255,255,.05);      /* hairline divider */
+  --rd-hair-strong: rgba(255,255,255,.09);
+
+  --rd-text: #f3ece6;
+  --rd-text-dim: #b3a596;
+  --rd-text-mut: #786b5d;
+  --rd-text-faint: #4d4540;
+
+  /* LED / accent system — one warm signature hue + per-section channel colors */
+  --rd-led: #ff7a1a;             /* primary orange LED */
+  --rd-led-soft: #ff9d4d;
+  --rd-led-deep: #e85d00;
+  --rd-amber: #ffb13a;           /* LCD digits */
+  --rd-amber-dim: #6b4d18;       /* unlit segment ghost */
+
+  --rd-cyan: #36d6c4;            /* secondary contrast (sync / ok) */
+  --rd-warn: #ffd23a;            /* countdown / imminent */
+  --rd-danger: #ff5247;
+
+  /* Section channel colors (kept from data model) */
+  --ch-orange: #ff8a3d;
+  --ch-gold: #ffc24a;
+  --ch-coral: #ff6f7d;
+  --ch-magenta: #ff6cc0;
+  --ch-lime: #b6f24a;
+  --ch-violet: #b388ff;
+  --ch-teal: #4fd6c8;
+
+  --rd-font: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --rd-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+/* ── Root surface ─────────────────────────────────────────── */
+.rd, .rd * { box-sizing: border-box; }
+.rd {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column;
+  background:
+    radial-gradient(120% 80% at 50% -10%, #14101a 0%, var(--rd-void) 60%);
+  color: var(--rd-text);
+  font-family: var(--rd-font);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  position: relative;
+  font-feature-settings: "ss01" on, "cv11" on;
+}
+.rd .mono { font-family: var(--rd-mono); font-variant-numeric: tabular-nums; }
+
+/* Engraved screen-print label */
+.rd .eng {
+  font-size: 10px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--rd-text-mut);
+  text-shadow: 0 1px 0 rgba(0,0,0,.6);
+}
+
+/* ── Panels (anodized metal) ──────────────────────────────── */
+.rd .panel {
+  position: relative;
+  background:
+    linear-gradient(180deg, var(--rd-panel-2) 0%, var(--rd-panel) 42%, var(--rd-case) 100%);
+  border: 1px solid rgba(0,0,0,.6);
+  border-top-color: var(--rd-edge-hi);
+  box-shadow:
+    inset 0 1px 0 var(--rd-edge-hi),
+    inset 0 -18px 30px rgba(0,0,0,.35),
+    0 1px 0 rgba(0,0,0,.4);
+}
+/* fine brushed-metal texture overlay */
+.rd .panel.brushed::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image: repeating-linear-gradient(90deg, rgba(255,255,255,.012) 0 1px, transparent 1px 3px);
+  opacity: .8;
+}
+/* corner screw */
+.rd .screw {
+  position: absolute; width: 9px; height: 9px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #3a3340, #16121a 70%);
+  box-shadow: inset 0 1px 1px rgba(255,255,255,.18), 0 1px 1px rgba(0,0,0,.6);
+}
+.rd .screw::after {
+  content: ""; position: absolute; inset: 2px; border-radius: 50%;
+  background: linear-gradient(45deg, transparent 44%, rgba(0,0,0,.5) 45% 55%, transparent 56%);
+}
+
+/* ── Tactile button / pad ─────────────────────────────────── */
+.rd .btn {
+  appearance: none; border: 0; cursor: pointer;
+  font-family: var(--rd-font); font-weight: 600; font-size: 13px;
+  color: var(--rd-text);
+  padding: 10px 16px;
+  background: linear-gradient(180deg, #2a2330 0%, #1a141f 100%);
+  border-top: 1px solid var(--rd-edge-hi);
+  box-shadow: 0 2px 0 #0a070d, 0 4px 10px rgba(0,0,0,.5);
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  letter-spacing: .01em;
+  transition: transform .06s, box-shadow .06s, filter .12s;
+}
+.rd .btn:active { transform: translateY(2px); box-shadow: 0 0 0 #0a070d, 0 2px 6px rgba(0,0,0,.5); }
+.rd .btn.primary {
+  background: linear-gradient(180deg, var(--rd-led-soft) 0%, var(--rd-led-deep) 100%);
+  color: #160a02; font-weight: 800;
+  border-top-color: rgba(255,255,255,.4);
+  box-shadow: 0 2px 0 #6e2c00, 0 6px 16px rgba(255,122,26,.35);
+}
+.rd .btn.ghost {
+  background: transparent; box-shadow: none;
+  border: 1px solid var(--rd-hair-strong); color: var(--rd-text-dim);
+}
+.rd .btn.icon { padding: 0; width: 38px; height: 38px; }
+
+/* round transport / pad */
+.rd .key {
+  appearance: none; border: 0; cursor: pointer; position: relative;
+  background: linear-gradient(180deg, #2c2532 0%, #15101a 100%);
+  border-top: 1px solid var(--rd-edge-hi);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 3px 0 #08060b, 0 6px 14px rgba(0,0,0,.55);
+  color: var(--rd-text);
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: transform .06s, box-shadow .06s;
+}
+.rd .key:active { transform: translateY(3px); box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 0 0 #08060b; }
+.rd .key.play {
+  background: linear-gradient(180deg, var(--rd-led-soft), var(--rd-led-deep));
+  color: #160a02; box-shadow: 0 3px 0 #6e2c00, 0 8px 22px rgba(255,122,26,.4);
+  border-top-color: rgba(255,255,255,.45);
+}
+
+/* ── LCD readout (amber, glass) ───────────────────────────── */
+.rd .lcd {
+  position: relative;
+  background:
+    linear-gradient(180deg, #0c0a07 0%, #161009 100%);
+  border: 1px solid #000;
+  box-shadow:
+    inset 0 2px 8px rgba(0,0,0,.8),
+    inset 0 0 0 1px rgba(255,177,58,.06),
+    0 1px 0 var(--rd-edge-hi);
+  color: var(--rd-amber);
+  font-family: var(--rd-mono); font-variant-numeric: tabular-nums;
+  overflow: hidden;
+}
+.rd .lcd::after { /* glass glare */
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(110deg, rgba(255,255,255,.05) 0%, transparent 30%);
+}
+.rd .lcd .digits {
+  font-weight: 700; line-height: .9;
+  text-shadow: 0 0 14px rgba(255,177,58,.55), 0 0 2px rgba(255,177,58,.9);
+}
+.rd .lcd .ghost { color: var(--rd-amber-dim); }
+
+/* ── LED dot / indicator ──────────────────────────────────── */
+.rd .led {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #1c1712; box-shadow: inset 0 0 0 1px rgba(0,0,0,.6);
+}
+.rd .led.on {
+  background: var(--c, var(--rd-led));
+  box-shadow: 0 0 0 1px rgba(0,0,0,.4), 0 0 8px 1px var(--c, var(--rd-led));
+}
+
+/* ── Knob ─────────────────────────────────────────────────── */
+.rd .knob {
+  position: relative; border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 30%, #322a39 0%, #1a151f 60%, #0d0a11 100%);
+  box-shadow: inset 0 2px 3px rgba(255,255,255,.08), inset 0 -3px 6px rgba(0,0,0,.7),
+    0 3px 8px rgba(0,0,0,.6);
+  border: 1px solid rgba(0,0,0,.7);
+}
+.rd .knob .ind {
+  position: absolute; left: 50%; top: 8%; width: 2px; height: 32%;
+  background: var(--rd-led); transform: translateX(-50%);
+  border-radius: 2px; box-shadow: 0 0 6px var(--rd-led);
+}
+
+/* ── Segmented control (toggle) ───────────────────────────── */
+.rd .seg {
+  display: inline-flex; padding: 3px; gap: 2px;
+  background: var(--rd-ink); border: 1px solid rgba(0,0,0,.6);
+  box-shadow: inset 0 2px 5px rgba(0,0,0,.6);
+}
+.rd .seg > button {
+  appearance: none; border: 0; cursor: pointer; background: transparent;
+  color: var(--rd-text-mut); font-family: var(--rd-font); font-weight: 700;
+  font-size: 11px; letter-spacing: .04em; padding: 7px 13px; white-space: nowrap;
+}
+.rd .seg > button[data-on="1"] {
+  background: linear-gradient(180deg, #2c2533, #1a141f);
+  color: var(--rd-text); box-shadow: inset 0 1px 0 var(--rd-edge-hi), 0 1px 2px rgba(0,0,0,.5);
+}
+
+/* ── Chips / pills ────────────────────────────────────────── */
+.rd .chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; font-size: 11px; font-weight: 700; letter-spacing: .03em;
+  background: var(--rd-ink); border: 1px solid var(--rd-hair-strong);
+  color: var(--rd-text-dim);
+}
+.rd .chip.live { color: var(--rd-led); border-color: rgba(255,122,26,.4); }
+.rd .chip.sync { color: var(--rd-cyan); border-color: rgba(54,214,196,.35); }
+
+/* progress: tick lights */
+.rd .ticks { display: flex; gap: 3px; }
+.rd .tick { flex: 1; height: 6px; background: var(--rd-ink); box-shadow: inset 0 1px 2px rgba(0,0,0,.6); }
+.rd .tick.done { background: color-mix(in srgb, var(--c, var(--rd-led)) 55%, var(--rd-ink)); }
+.rd .tick.on { background: var(--c, var(--rd-led)); box-shadow: 0 0 8px var(--c, var(--rd-led)); }
+
+/* ── Drum-notation staff ──────────────────────────────────── */
+.rd .staff { position: relative; background: linear-gradient(180deg,#0c0a07,#120d09); border: 1px solid #000;
+  box-shadow: inset 0 2px 10px rgba(0,0,0,.7); }
+.rd .lane-line { position: absolute; left: 0; right: 0; height: 1px; background: rgba(255,177,58,.1); }
+
+@keyframes rd-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+@keyframes rd-blink { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+.rd .blink { animation: rd-blink 1s steps(2, jump-none) infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .rd .blink { animation: none; }
+}
+
+/* ── Shell layout (new — the prototypes used separate Desktop/Mobile trees;
+ *    the live app renders one tree and switches rail/tabs by breakpoint) ─── */
+.app.rd { position: fixed; inset: 0; height: 100%; width: 100%; }
+.rd .rd-shell { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+
+/* main column + scroll region */
+.rd .rd-main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.rd .rd-scroll { flex: 1; overflow: auto; min-height: 0; }
+
+/* nav: rail (desktop/tablet) hidden on mobile; tabs hidden on desktop */
+.rd .rd-rail { display: none; }
+.rd .rd-tabs { display: flex; }
+
+/* song library grid */
+.rd .rd-song-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+
+/* ≥ 760px → desktop/tablet: side rail, no bottom tabs, multi-column grid */
+@media (min-width: 760px) {
+  .rd .rd-shell { flex-direction: row; }
+  .rd .rd-rail { display: flex; }
+  .rd .rd-tabs { display: none; }
+  .rd .rd-song-grid { grid-template-columns: repeat(2, 1fr); gap: 16px; }
+}
+@media (min-width: 1080px) {
+  .rd .rd-song-grid { grid-template-columns: repeat(3, 1fr); }
+}
