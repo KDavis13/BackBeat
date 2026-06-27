@@ -30,11 +30,13 @@ function LearnPlaceholder() {
 function App() {
   const [songs, setSongs] = React.useState(() => window.BBData.loadSongs());
   const [onoma, setOnoma] = React.useState(() => window.BBData.loadOnoma());
+  const [folders, setFolders] = React.useState(() => window.BBData.loadFolders());
   const [view, setView] = React.useState({ name: 'library' });
   const [t, setTweak] = window.useTweaks(window.TWEAK_DEFAULTS);
 
   React.useEffect(() => { window.BBData.saveSongs(songs); }, [songs]);
   React.useEffect(() => { window.BBData.saveOnoma(onoma); }, [onoma]);
+  React.useEffect(() => { window.BBData.saveFolders(folders); }, [folders]);
 
   const findSong = (id) => songs.find((s) => s.id === id);
 
@@ -68,12 +70,34 @@ function App() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  // Onomatopoeia handlers
+  // Onomatopoeia (groove) handlers
   const onOnomaChange = (p) => setOnoma(onoma.map((x) => x.id === p.id ? p : x));
-  const onOnomaAdd = () => setOnoma([window.BBData.blankOnoma(), ...onoma]);
   const onOnomaDelete = (id) => {
-    if (!confirm('¿Eliminar este patrón?')) return;
+    if (!confirm('¿Eliminar este groove?')) return;
     setOnoma(onoma.filter((p) => p.id !== id));
+    // also strip from any folder it lived in
+    setFolders((fs) => fs.map((f) => f.grooveIds.includes(id)
+      ? { ...f, grooveIds: f.grooveIds.filter((g) => g !== id) } : f));
+  };
+
+  // Folder handlers
+  const onFolderAdd = () => setFolders([...folders, window.BBData.blankFolder(folders)]);
+  const onFolderRename = (id, name) =>
+    setFolders(folders.map((f) => f.id === id ? { ...f, name } : f));
+  const onFolderDelete = (id) => setFolders(folders.filter((f) => f.id !== id));
+  const onMoveGroove = (grooveId, folderId) => {
+    setFolders((fs) => fs.map((f) => {
+      const has = f.grooveIds.includes(grooveId);
+      if (f.id === folderId && !has) return { ...f, grooveIds: [...f.grooveIds, grooveId] };
+      if (f.id !== folderId && has) return { ...f, grooveIds: f.grooveIds.filter((g) => g !== grooveId) };
+      return f;
+    }));
+  };
+  // Create a (caller-built) blank groove and optionally drop it in a folder.
+  const onCreateGroove = (groove, folderId) => {
+    setOnoma([groove, ...onoma]);
+    if (folderId) setFolders((fs) => fs.map((f) =>
+      f.id === folderId ? { ...f, grooveIds: [...f.grooveIds, groove.id] } : f));
   };
 
   // top-level nav: only routes between the four destinations; sub-views
@@ -95,10 +119,14 @@ function App() {
                             onPlay={onPlay} />;
     }
     if (view.name === 'onoma') {
-      return <window.OnomaScreen items={onoma}
-                                 onChange={onOnomaChange}
-                                 onAdd={onOnomaAdd}
-                                 onDelete={onOnomaDelete} />;
+      return <window.GroovesLibrary items={onoma} folders={folders}
+                                    onFolderAdd={onFolderAdd}
+                                    onFolderRename={onFolderRename}
+                                    onFolderDelete={onFolderDelete}
+                                    onMoveGroove={onMoveGroove}
+                                    onCreateGroove={onCreateGroove}
+                                    onGrooveChange={onOnomaChange}
+                                    onGrooveDelete={onOnomaDelete} />;
     }
     if (view.name === 'practice') {
       return <window.Practice onomaItems={onoma}

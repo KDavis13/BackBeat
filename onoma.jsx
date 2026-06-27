@@ -426,4 +426,4 @@ function OnomaScreen({ items, onChange, onAdd, onDelete }) {
   );
 }
 
-Object.assign(window, { OnomaScreen, SOUNDS });
+Object.assign(window, { OnomaScreen, OnomaEditorPanel, SOUNDS });

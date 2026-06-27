@@ -3,20 +3,24 @@
 //
 // Bump CACHE_NAME on each release to invalidate older caches.
 
-const CACHE_NAME = 'backbeat-v18';
+const CACHE_NAME = 'backbeat-v19';
 const PRECACHE = [
   './',
   './index.html',
   './styles.css',
   './player.css',
+  './player-ios.css',
   './features.css',
+  './rd-theme.css',
   './metronome.js',
   './data.js',
+  './rd-kit.jsx',
   './app.jsx',
   './beatviz.jsx',
   './editor.jsx',
   './library.jsx',
   './onoma.jsx',
+  './grooves-lib.jsx',
   './player.jsx',
   './practice.jsx',
   './tweaks-panel.jsx',

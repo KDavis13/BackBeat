@@ -384,6 +384,54 @@
     try { localStorage.setItem(KEY_ONOMA, JSON.stringify(items)); } catch (e) {}
   }
 
+  // ── Groove folders ──────────────────────────────────────────────────
+  // folders = [{ id, name, color, grooveIds: string[] }]. A groove lives in
+  // at most one folder; grooves in none show under a virtual "Sin clasificar"
+  // view (not stored). Older data simply has no folders → all unclassified.
+  const KEY_FOLDERS = 'backbeat.folders.v1';
+  const FOLDER_COLOR_CYCLE = ['gold', 'coral', 'lime', 'violet', 'teal', 'magenta', 'orange'];
+
+  function loadFolders() {
+    try {
+      const raw = localStorage.getItem(KEY_FOLDERS);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          return parsed.map((f) => ({
+            id: f.id || uid(), name: f.name || 'Carpeta',
+            color: f.color || 'orange',
+            grooveIds: Array.isArray(f.grooveIds) ? f.grooveIds.filter(Boolean) : [],
+          }));
+        }
+      }
+    } catch (e) {}
+    return [];
+  }
+  function saveFolders(folders) {
+    try { localStorage.setItem(KEY_FOLDERS, JSON.stringify(folders)); } catch (e) {}
+  }
+  function blankFolder(folders) {
+    const i = Array.isArray(folders) ? folders.length : 0;
+    return {
+      id: uid(), name: 'Nueva carpeta',
+      color: FOLDER_COLOR_CYCLE[i % FOLDER_COLOR_CYCLE.length],
+      grooveIds: [],
+    };
+  }
+  /** Folder id that owns this groove, or null. */
+  function folderOf(folders, grooveId) {
+    if (!Array.isArray(folders)) return null;
+    const f = folders.find((x) => (x.grooveIds || []).includes(grooveId));
+    return f ? f.id : null;
+  }
+  /** Grooves not assigned to any folder. */
+  function unclassified(folders, grooves) {
+    if (!Array.isArray(grooves)) return [];
+    const assigned = new Set();
+    (folders || []).forEach((f) => (f.grooveIds || []).forEach((id) => assigned.add(id)));
+    return grooves.filter((g) => !assigned.has(g.id));
+  }
+
   function sectionBars(s) {
     if (!s) return 0;
     if (s.phrases) return s.phrases.reduce((n, p) => n + p.bars * p.repeat, 0);
@@ -499,6 +547,7 @@
 
   window.BBData = {
     loadSongs, saveSongs, loadOnoma, saveOnoma,
+    loadFolders, saveFolders, blankFolder, folderOf, unclassified,
     uid, blankSong, blankOnoma, blankPhrase, blankFill,
     cloneWithIds,
     sectionBars, totalBars, locate, sectionStartBar, buildSchedule,
