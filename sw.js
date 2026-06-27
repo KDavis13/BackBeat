@@ -3,7 +3,7 @@
 //
 // Bump CACHE_NAME on each release to invalidate older caches.
 
-const CACHE_NAME = 'backbeat-v20';
+const CACHE_NAME = 'backbeat-v21';
 const PRECACHE = [
   './',
   './index.html',
@@ -15,6 +15,7 @@ const PRECACHE = [
   './metronome.js',
   './data.js',
   './rd-kit.jsx',
+  './perf-views.jsx',
   './app.jsx',
   './beatviz.jsx',
   './editor.jsx',

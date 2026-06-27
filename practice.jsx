@@ -33,52 +33,10 @@ function practiceFormatTime(sec) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-/** Live viz of a groove: syllables (sorted) and a per-beat track that
- *  respects each beat's own subdivision (negras / corcheas / tresillos…). */
-function PracticeViz({ groove, currentStep }) {
-  const beatsPerBar = window.BBData.grooveBeatsPerBar(groove);
-  const beatSubs = window.BBData.grooveBeatSubs(groove);
-  const beatStart = [0];
-  beatSubs.forEach((n) => beatStart.push(beatStart[beatStart.length - 1] + n));
-  const syllables = [];
-  const seen = new Set();
-  groove.hits.slice().sort((a, b) => a.step - b.step).forEach((h) => {
-    if (seen.has(h.step) || !h.text) return;
-    seen.add(h.step);
-    syllables.push({ step: h.step, text: h.text });
-  });
-  return (
-    <div className="prac-viz">
-      <div className="prac-viz-name">{groove.name}</div>
-      <div className="prac-viz-syl">
-        {syllables.length === 0 && (
-          <span className="prac-viz-syl-empty">(sin sílabas — añádelas en la pestaña Grooves)</span>
-        )}
-        {syllables.map((s, i) => (
-          <span key={i}
-                className={`prac-viz-syl-item${s.step === currentStep ? ' on' : ''}`}>
-            {s.text}
-          </span>
-        ))}
-      </div>
-      <div className="prac-viz-track" style={{ '--bpb': beatsPerBar }}>
-        {beatSubs.map((subs, b) => (
-          <div key={b} className="prac-viz-beat" style={{ '--subs': subs }}>
-            {Array.from({ length: subs }).map((_, sub) => {
-              const cellIdx = beatStart[b] + sub;
-              const has = groove.hits.some((h) => h.step === cellIdx);
-              const on = cellIdx === currentStep;
-              return (
-                <span key={sub}
-                      className={`prac-viz-step${sub === 0 ? ' beat' : ''}${has ? ' has' : ''}${on ? ' on' : ''}`} />
-              );
-            })}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+const PRAC_DARK_FIELD = {
+  background: 'var(--rd-ink)', color: 'var(--rd-text)', border: '1px solid var(--rd-hair-strong)',
+  padding: '8px 10px', fontFamily: 'var(--rd-font)', fontSize: 13, width: '100%',
+};
 
 function Practice({ onomaItems, openOnomaScreen }) {
   const [settings, setSettingsState] = React.useState(() => practiceLoadSettings());
@@ -103,8 +61,14 @@ function Practice({ onomaItems, openOnomaScreen }) {
   // True between the ramp timer hitting the threshold and the actual bump
   // (which is bar-aligned — we wait for the current groove bar to end).
   const [awaitingBump, setAwaitingBump] = React.useState(false);
+  // Bar phase (0..1) for the performance views; persisted view mode.
+  const [phase, setPhase] = React.useState(0);
+  const [viewMode, setViewModeState] = React.useState(() => window.BBData.loadViewMode());
+  const setViewMode = (m) => { setViewModeState(m); window.BBData.saveViewMode(m); };
 
   const groove = (onomaItems || []).find((o) => o.id === settings.grooveId);
+  const grooveVoices = React.useMemo(() => groove ? window.BBData.grooveToVoices(groove).voices : [], [groove]);
+  const grooveBeats = groove ? window.BBData.grooveBeatsPerBar(groove) : 4;
 
   const metroRef = React.useRef(null);
   if (!metroRef.current) metroRef.current = new window.Metronome();
@@ -283,19 +247,15 @@ function Practice({ onomaItems, openOnomaScreen }) {
     if (!running || !groove) return;
     let raf;
     const tick = () => {
-      if (settleRemainingRef.current > 0) {
-        setCurrentStep(-1);
-        raf = requestAnimationFrame(tick);
-        return;
-      }
       const m = metroRef.current;
       const { start, dur } = barRef.current;
       if (m && m.ctx && dur > 0 && start > 0) {
         const elapsed = m.ctx.currentTime - start;
         if (elapsed >= 0) {
           const fraction = (elapsed % dur) / dur;
-          const cellIdx = window.BBData.grooveCellAtFraction(groove, fraction);
-          setCurrentStep(cellIdx);
+          setPhase(fraction);
+          // During the settle window the groove is muted → don't light a cell.
+          setCurrentStep(settleRemainingRef.current > 0 ? -1 : window.BBData.grooveCellAtFraction(groove, fraction));
         }
       }
       raf = requestAnimationFrame(tick);
@@ -328,171 +288,129 @@ function Practice({ onomaItems, openOnomaScreen }) {
     : bpm + settings.rampStep;
   const rampFillPct = Math.min(100, (elapsedSec / settings.rampIntervalSec) * 100);
 
+  const RD = window.RD; const RP = window.RDPerf;
+  const TICKS = 14;
+  const ticksDone = Math.min(TICKS, Math.round((rampFillPct / 100) * TICKS));
+  const fld = PRAC_DARK_FIELD;
+
   return (
-    <div className="page practice-page">
-      <div className="page-head">
-        <div>
-          <h1 className="page-title">Práctica</h1>
-          <p className="page-sub">
-            Coge un groove, fija un tempo inicial y deja que suba solo (estilo Stick Control).
-          </p>
+    <React.Fragment>
+      {/* header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '16px 22px',
+        borderBottom: '1px solid #000', boxShadow: '0 1px 0 var(--rd-edge-hi)', flexShrink: 0,
+        background: 'linear-gradient(180deg,var(--rd-panel-2),var(--rd-panel))' }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-.025em' }}>Práctica</div>
+          <div className="eng" style={{ marginTop: 3 }}>Encadena el tempo · estilo Stick Control</div>
         </div>
+        {groove && <div style={{ marginLeft: 'auto' }}><RP.ViewToggle mode={viewMode} onChange={setViewMode} /></div>}
       </div>
 
-      <div className="prac-layout">
-        <div className="prac-settings">
-          <div className="prac-field">
-            <div className="prac-field-row">
-              <label className="label">Groove</label>
-              <button className="btn ghost prac-new-btn" onClick={openOnomaScreen}
-                      title="Crear o editar grooves">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
-                     stroke="currentColor" strokeWidth="2.5">
-                  <path d="M12 5v14M5 12h14"/>
-                </svg>
-                Crear / editar
-              </button>
-            </div>
-            <select className="select" value={settings.grooveId || ''}
-                    onChange={(e) => updateSettings({ grooveId: e.target.value || null })}>
-              <option value="">— elige uno —</option>
-              {(onomaItems || []).map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name} ({window.BBData.grooveBeatsPerBar(o)}/4)
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="prac-field-grid">
-            <div className="prac-field">
-              <label className="label">BPM inicial</label>
-              <input className="input num-mono" type="number" min="20" max="300"
-                     value={settings.startBpm}
-                     onChange={(e) => updateSettings({
-                       startBpm: Math.max(20, Math.min(300, Number(e.target.value) || 80)),
-                     })} />
-            </div>
-            <div className="prac-field">
-              <label className="label">Subir BPM</label>
-              <input className="input num-mono" type="number" min="1" max="20"
-                     value={settings.rampStep}
-                     onChange={(e) => updateSettings({
-                       rampStep: Math.max(1, Math.min(20, Number(e.target.value) || 5)),
-                     })} />
-            </div>
-            <div className="prac-field">
-              <label className="label">Cada</label>
-              <select className="select" value={settings.rampIntervalSec}
-                      onChange={(e) => updateSettings({ rampIntervalSec: Number(e.target.value) })}>
-                <option value="15">15 segundos</option>
-                <option value="30">30 segundos</option>
-                <option value="45">45 segundos</option>
-                <option value="60">1 minuto</option>
-                <option value="90">1,5 minutos</option>
-                <option value="120">2 minutos</option>
-                <option value="180">3 minutos</option>
+      <div className="rd-scroll" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* settings */}
+        <div className="panel" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 180 }}>
+              <div className="eng" style={{ fontSize: 9, marginBottom: 5 }}>Groove</div>
+              <select style={fld} value={settings.grooveId || ''}
+                onChange={(e) => updateSettings({ grooveId: e.target.value || null })}>
+                <option value="">— elige uno —</option>
+                {(onomaItems || []).map((o) => (
+                  <option key={o.id} value={o.id}>{o.name} ({window.BBData.grooveBeatsPerBar(o)}/4)</option>
+                ))}
               </select>
             </div>
-            <div className="prac-field">
-              <label className="label">Tope máx.</label>
-              <input className="input num-mono" type="number" min="0" max="300"
-                     value={settings.maxBpm}
-                     onChange={(e) => updateSettings({
-                       maxBpm: Math.max(0, Math.min(300, Number(e.target.value) || 0)),
-                     })}
-                     placeholder="0 = sin tope" />
-            </div>
-            <div className="prac-field" style={{ gridColumn: '1 / -1' }}>
-              <label className="label">Adaptación tras subida</label>
-              <select className="select"
-                      value={settings.settleBars}
-                      onChange={(e) => updateSettings({ settleBars: Number(e.target.value) })}>
+            <button className="btn ghost" onClick={openOnomaScreen} title="Crear o editar grooves">
+              <RD.Icon d={RD.IC.plus} size={14} /> Crear / editar
+            </button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
+            <label><div className="eng" style={{ fontSize: 9, marginBottom: 5 }}>BPM inicial</div>
+              <input className="mono" style={fld} type="number" min="20" max="300" value={settings.startBpm}
+                onChange={(e) => updateSettings({ startBpm: Math.max(20, Math.min(300, Number(e.target.value) || 80)) })} /></label>
+            <label><div className="eng" style={{ fontSize: 9, marginBottom: 5 }}>Subir BPM</div>
+              <input className="mono" style={fld} type="number" min="1" max="20" value={settings.rampStep}
+                onChange={(e) => updateSettings({ rampStep: Math.max(1, Math.min(20, Number(e.target.value) || 5)) })} /></label>
+            <label><div className="eng" style={{ fontSize: 9, marginBottom: 5 }}>Cada</div>
+              <select style={fld} value={settings.rampIntervalSec}
+                onChange={(e) => updateSettings({ rampIntervalSec: Number(e.target.value) })}>
+                <option value="15">15 s</option><option value="30">30 s</option><option value="45">45 s</option>
+                <option value="60">1 min</option><option value="90">1,5 min</option><option value="120">2 min</option><option value="180">3 min</option>
+              </select></label>
+            <label><div className="eng" style={{ fontSize: 9, marginBottom: 5 }}>Tope máx.</div>
+              <input className="mono" style={fld} type="number" min="0" max="300" value={settings.maxBpm} placeholder="0 = sin tope"
+                onChange={(e) => updateSettings({ maxBpm: Math.max(0, Math.min(300, Number(e.target.value) || 0)) })} /></label>
+            <label style={{ gridColumn: '1 / -1' }}><div className="eng" style={{ fontSize: 9, marginBottom: 5 }}>Adaptación tras subida</div>
+              <select style={fld} value={settings.settleBars} onChange={(e) => updateSettings({ settleBars: Number(e.target.value) })}>
                 <option value="0">sin adaptación · groove sigue al instante</option>
                 <option value="1">1 compás de solo metrónomo</option>
                 <option value="2">2 compases de solo metrónomo</option>
                 <option value="3">3 compases de solo metrónomo</option>
                 <option value="4">4 compases de solo metrónomo</option>
-              </select>
-            </div>
+              </select></label>
           </div>
-
-          <label className="prac-check">
-            <input type="checkbox" checked={metroClick}
-                   onChange={(e) => setMetroClick(e.target.checked)} />
-            <span>Click del metrónomo bajo el groove</span>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} onClick={() => setMetroClick((x) => !x)}>
+            <span className={'led' + (metroClick ? ' on' : '')} style={{ width: 8, height: 8 }} />
+            <span className="eng" style={{ fontSize: 9 }}>Click del metrónomo bajo el groove</span>
           </label>
         </div>
 
-        <div className="prac-stage">
-          <div className="prac-bpm-block">
-            <div className="prac-bpm-now num-mono">{bpm}</div>
-            <div className="prac-bpm-label">BPM</div>
-          </div>
-
-          <div className="prac-ramp">
-            <div className="prac-ramp-text">
-              {awaitingBump ? (
-                <>esperando final del compás para subir a <b className="num-mono">{nextBpm}</b> BPM…</>
-              ) : settleRemaining > 0 ? (
-                <>adaptándose · <b className="num-mono">{settleRemaining}</b> {settleRemaining === 1 ? 'compás' : 'compases'} de solo metrónomo</>
-              ) : atMax ? (
-                <>Tope alcanzado · <b className="num-mono">{settings.maxBpm}</b> BPM</>
-              ) : (
-                <>siguiente: <b className="num-mono">{nextBpm}</b> BPM
-                  {running && <> en <b className="num-mono">{remainingToRamp}</b>s</>}</>
-              )}
-            </div>
-            <div className={`prac-ramp-bar${settleRemaining > 0 ? ' settling' : ''}${awaitingBump ? ' awaiting' : ''}`}>
-              <div className="prac-ramp-fill" style={{ width: `${rampFillPct}%` }} />
-            </div>
-          </div>
-
-          {groove ? (
-            <PracticeViz groove={groove} currentStep={currentStep} />
-          ) : (
-            <div className="prac-empty">
-              Elige un groove arriba — o crea uno nuevo desde la pestaña Grooves — para empezar.
-            </div>
+        {/* tempo + ramp */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <RD.LCD value={bpm} unit="BPM" sub="actual" size={44} />
+          {settings.maxBpm > 0 && (
+            <React.Fragment>
+              <RD.Icon d={RD.IC.chevR} size={18} style={{ color: 'var(--rd-led)' }} />
+              <RD.LCD value={settings.maxBpm} unit="BPM" sub="meta" size={30} style={{ opacity: .8 }} />
+            </React.Fragment>
           )}
-
-          <div className="prac-stats">
-            <div className="prac-stat">
-              <div className="label">vueltas</div>
-              <div className="num-mono prac-stat-num">{loopCount}</div>
+          <div style={{ flex: 1, minWidth: 160 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span className="eng" style={{ fontSize: 9 }}>
+                {awaitingBump ? `subiendo a ${nextBpm}…` : settleRemaining > 0 ? `adaptándose · ${settleRemaining} comp.` : atMax ? 'tope alcanzado' : `siguiente ${nextBpm} BPM`}
+              </span>
+              <span className="mono" style={{ fontSize: 10, color: 'var(--rd-led)' }}>{running && !atMax ? `${remainingToRamp}s` : ''}</span>
             </div>
-            <div className="prac-stat">
-              <div className="label">tiempo</div>
-              <div className="num-mono prac-stat-num">{practiceFormatTime(totalSec)}</div>
+            <div className="ticks" style={{ '--c': settleRemaining > 0 ? 'var(--rd-warn)' : 'var(--rd-led)' }}>
+              {Array.from({ length: TICKS }).map((_, i) => (
+                <span key={i} className={`tick ${i < ticksDone ? 'done' : ''} ${i === ticksDone - 1 ? 'on' : ''}`} />
+              ))}
             </div>
           </div>
+        </div>
 
-          <div className="prac-controls">
-            <button className="btn ghost prac-reset-btn" onClick={reset} title="Reiniciar">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                   stroke="currentColor" strokeWidth="2">
-                <path d="M1 4v6h6M23 20v-6h-6"/>
-                <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4-4.64 4.36A9 9 0 0 1 3.51 15"/>
-              </svg>
+        {/* performance view */}
+        {groove ? (
+          viewMode === 'falling'
+            ? <RP.FallingGroove voices={grooveVoices} beats={grooveBeats} phase={phase} H={380} />
+            : <RP.PerfGroove voices={grooveVoices} beats={grooveBeats} phase={phase} h={48} />
+        ) : (
+          <div className="panel" style={{ padding: 28, textAlign: 'center', color: 'var(--rd-text-mut)' }}>
+            Elige un groove arriba — o crea uno desde Grooves — para empezar.
+          </div>
+        )}
+
+        {/* stats + transport */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 22 }}>
+          <div style={{ display: 'flex', gap: 22 }}>
+            <div><div className="eng" style={{ fontSize: 9 }}>vueltas</div><div className="mono" style={{ fontSize: 22, fontWeight: 800 }}>{loopCount}</div></div>
+            <div><div className="eng" style={{ fontSize: 9 }}>tiempo</div><div className="mono" style={{ fontSize: 22, fontWeight: 800 }}>{practiceFormatTime(totalSec)}</div></div>
+          </div>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14 }}>
+            <button className="key" style={{ width: 46, height: 46 }} onClick={reset} title="Reiniciar">
+              <RD.Icon d={['M1 4v6h6', 'M3.51 15a9 9 0 1 0 2.13-9.36L1 10']} size={18} />
             </button>
-            {running ? (
-              <button className="btn play-btn pause" onClick={pause}>
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-                  <rect x="6" y="5" width="4" height="14"/>
-                  <rect x="14" y="5" width="4" height="14"/>
-                </svg>
-              </button>
-            ) : (
-              <button className="btn primary play-btn" onClick={play} disabled={!groove}>
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M8 5v14l11-7z"/>
-                </svg>
-              </button>
-            )}
+            <button className={'key' + (running ? ' play' : '')} style={{ width: 64, height: 64 }}
+              onClick={() => running ? pause() : play()} disabled={!groove}>
+              <RD.Icon d={running ? RD.IC.pause : RD.IC.play} size={24} fill={running ? 'none' : 'currentColor'} />
+            </button>
+            <button className="key" style={{ width: 46, height: 46, opacity: metroClick ? 1 : .5 }} onClick={() => setMetroClick((x) => !x)} title="Click">
+              <RD.Icon d={RD.IC.metronome} size={18} />
+            </button>
           </div>
         </div>
       </div>
-    </div>
+    </React.Fragment>
   );
 }
 

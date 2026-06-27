@@ -572,6 +572,16 @@
     return { ...groove, ...grooveDerivedLegacy(groove) };
   }
 
+  // Performance view preference (sweep/falling) — shared by Práctica + Canción.
+  const KEY_VIEWMODE = 'backbeat.perfview.v1';
+  function loadViewMode() {
+    try { const v = localStorage.getItem(KEY_VIEWMODE); return v === 'falling' ? 'falling' : 'sweep'; }
+    catch (e) { return 'sweep'; }
+  }
+  function saveViewMode(m) {
+    try { localStorage.setItem(KEY_VIEWMODE, m === 'falling' ? 'falling' : 'sweep'); } catch (e) {}
+  }
+
   function blankGroove() {
     const ids = ['hat', 'snare', 'kick'];
     const voices = ids.map((id) => ({
@@ -703,6 +713,7 @@
     KIT_VOICES, ART_VELOCITY, SWING_AMOUNT, kitVoiceDef,
     voiceCellCount, voiceCellFraction, cellPlacement,
     grooveToVoices, grooveDerivedLegacy, withDerivedLegacy, blankGroove,
+    loadViewMode, saveViewMode,
     uid, blankSong, blankOnoma, blankPhrase, blankFill,
     cloneWithIds,
     sectionBars, totalBars, locate, sectionStartBar, buildSchedule,
