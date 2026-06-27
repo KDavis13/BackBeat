@@ -3,7 +3,7 @@
 //
 // Bump CACHE_NAME on each release to invalidate older caches.
 
-const CACHE_NAME = 'backbeat-v19';
+const CACHE_NAME = 'backbeat-v20';
 const PRECACHE = [
   './',
   './index.html',
@@ -20,6 +20,7 @@ const PRECACHE = [
   './editor.jsx',
   './library.jsx',
   './onoma.jsx',
+  './groove-designer.jsx',
   './grooves-lib.jsx',
   './player.jsx',
   './practice.jsx',

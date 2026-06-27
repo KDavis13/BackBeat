@@ -432,6 +432,158 @@
     return grooves.filter((g) => !assigned.has(g.id));
   }
 
+  // ── Per-voice groove model (designer) ──────────────────────────────
+  // A groove gains an optional `voices[]` layer for the redesigned designer:
+  //   voice = { id, sound, label, color, cymbal,
+  //             structure:[ {sub:N} | {halves:[{sub},{sub}]} ],  // len = beatsPerBar
+  //             lit:[cellIdx…], arts:{[idx]:art}, syll:{[idx]:text} }
+  // The flat legacy shape (beatSubdivisions/hits) is DERIVED from voices on
+  // every save, so player.jsx + practice.jsx keep working unchanged.
+  const KIT_VOICES = [
+    { id: 'crash', sound: 'crash', label: 'Crash',  color: 'teal',    cymbal: true },
+    { id: 'hat',   sound: 'hat',   label: 'Hi-hat', color: 'lime',    cymbal: true },
+    { id: 'ride',  sound: 'ride',  label: 'Ride',   color: 'teal',    cymbal: true },
+    { id: 'tom1',  sound: 'tom1',  label: 'Tom 1',  color: 'violet',  cymbal: false },
+    { id: 'tom2',  sound: 'tom2',  label: 'Tom 2',  color: 'magenta', cymbal: false },
+    { id: 'tom3',  sound: 'tom3',  label: 'Tom 3',  color: 'coral',   cymbal: false },
+    { id: 'snare', sound: 'snare', label: 'Caja',   color: 'gold',    cymbal: false },
+    { id: 'kick',  sound: 'kick',  label: 'Bombo',  color: 'orange',  cymbal: false },
+  ];
+  const KIT_ORDER = KIT_VOICES.map((v) => v.id);
+  const ART_VELOCITY = { normal: .85, accent: 1.0, ghost: .4, closed: .85, open: .9, foot: .5 };
+  const SWING_AMOUNT = { straight: 0, medium: .3, shuffle: .6 };
+
+  function kitVoiceDef(id) {
+    return KIT_VOICES.find((v) => v.id === id || v.sound === id)
+      || { id, sound: id, label: id, color: 'orange', cymbal: false };
+  }
+  function _gcd(a, b) { return b ? _gcd(b, a % b) : a; }
+  function _lcm(a, b) { return a && b ? Math.abs(a * b) / _gcd(a, b) : (a || b); }
+
+  function beatCellCount(beat) {
+    if (beat && beat.halves) return beat.halves.reduce((n, h) => n + (h.sub || 1), 0);
+    return (beat && beat.sub) || 1;
+  }
+  function voiceCellCount(voice) {
+    return (voice.structure || []).reduce((n, b) => n + beatCellCount(b), 0);
+  }
+  /** {beat, fwb} (fraction within the beat, 0..1) for a voice cell index. */
+  function cellPlacement(voice, idx) {
+    const st = voice.structure || [];
+    let k = 0;
+    for (let b = 0; b < st.length; b++) {
+      const beat = st[b];
+      if (beat && beat.halves) {
+        const [h0, h1] = beat.halves;
+        const a = h0.sub || 1, c = h1.sub || 1;
+        for (let i = 0; i < a; i++, k++) if (k === idx) return { beat: b, fwb: (i / a) * 0.5 };
+        for (let j = 0; j < c; j++, k++) if (k === idx) return { beat: b, fwb: 0.5 + (j / c) * 0.5 };
+      } else {
+        const n = (beat && beat.sub) || 1;
+        for (let i = 0; i < n; i++, k++) if (k === idx) return { beat: b, fwb: i / n };
+      }
+    }
+    return { beat: Math.max(0, st.length - 1), fwb: 0 };
+  }
+  /** Fraction of the bar (0..1) where a voice cell falls. */
+  function voiceCellFraction(voice, beatsPerBar, idx) {
+    const bpb = beatsPerBar || (voice.structure || []).length || 4;
+    const { beat, fwb } = cellPlacement(voice, idx);
+    return (beat + fwb) / bpb;
+  }
+  /** Effective subdivision denominators a beat contributes to the legacy grid. */
+  function beatDenoms(beat) {
+    if (beat && beat.halves) return beat.halves.map((h) => 2 * (h.sub || 1));
+    return [(beat && beat.sub) || 1];
+  }
+
+  /** Build the per-voice layer from a legacy groove (one voice per sound). */
+  function grooveToVoices(g) {
+    const bpb = grooveBeatsPerBar(g);
+    const sig = g.sig || (bpb + '/4');
+    const swing = g.swing || 'straight';
+    if (Array.isArray(g.voices) && g.voices.length) {
+      const voices = g.voices.map((v) => ({
+        ...kitVoiceDef(v.id || v.sound), ...v,
+        structure: Array.isArray(v.structure) && v.structure.length ? v.structure
+          : grooveBeatSubs(g).map((s) => ({ sub: s })),
+        lit: Array.isArray(v.lit) ? v.lit.slice() : [],
+        arts: v.arts ? { ...v.arts } : {},
+        syll: v.syll ? { ...v.syll } : {},
+      }));
+      return { ...g, beatsPerBar: bpb, sig, swing, voices };
+    }
+    const subs = grooveBeatSubs(g);
+    const structure = subs.map((s) => ({ sub: s }));
+    const bySound = {};
+    (g.hits || []).forEach((h) => { (bySound[h.sound] = bySound[h.sound] || []).push(h); });
+    const ids = Object.keys(bySound).sort((a, b) => {
+      const ia = KIT_ORDER.indexOf(a), ib = KIT_ORDER.indexOf(b);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+    const voices = ids.map((sound) => {
+      const def = kitVoiceDef(sound);
+      const lit = [], arts = {}, syll = {};
+      bySound[sound].forEach((h) => {
+        lit.push(h.step);
+        const v = h.velocity == null ? .85 : h.velocity;
+        if (def.cymbal) { if (v <= .5) arts[h.step] = 'foot'; }
+        else if (v >= .95) arts[h.step] = 'accent';
+        else if (v <= .5) arts[h.step] = 'ghost';
+        if (h.text) syll[h.step] = h.text;
+      });
+      return { ...def, structure: structure.map((b) => ({ ...b })), lit, arts, syll };
+    });
+    return { ...g, beatsPerBar: bpb, sig, swing, voices };
+  }
+
+  /** Flatten the per-voice layer back to the legacy {beatSubdivisions, hits}
+   *  shape consumed by player.jsx + practice.jsx. */
+  function grooveDerivedLegacy(groove) {
+    const voices = groove.voices || [];
+    const bpb = groove.beatsPerBar || (voices[0] && voices[0].structure.length) || 4;
+    const beatSubdivisions = [];
+    for (let b = 0; b < bpb; b++) {
+      let l = 1;
+      voices.forEach((v) => { beatDenoms((v.structure || [])[b]).forEach((d) => { l = _lcm(l, d); }); });
+      if (l > 24) l = 24;            // cap exotic subdivisions; quantize below
+      beatSubdivisions.push(l || 1);
+    }
+    const starts = []; let acc = 0;
+    for (let b = 0; b < bpb; b++) { starts.push(acc); acc += beatSubdivisions[b]; }
+    const seen = new Set(); const hits = [];
+    voices.forEach((v) => {
+      const cells = voiceCellCount(v);
+      for (let idx = 0; idx < cells; idx++) {
+        if (!(v.lit || []).includes(idx)) continue;
+        const { beat, fwb } = cellPlacement(v, idx);
+        const step = starts[beat] + Math.round(fwb * beatSubdivisions[beat]);
+        const key = v.sound + '@' + step;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const art = (v.arts || {})[idx] || (v.cymbal ? 'closed' : 'normal');
+        hits.push({ step, sound: v.sound, velocity: ART_VELOCITY[art] != null ? ART_VELOCITY[art] : .85,
+          text: (v.syll || {})[idx] || '' });
+      }
+    });
+    return { beatsPerBar: bpb, beatSubdivisions, resolution: acc, hits };
+  }
+  function withDerivedLegacy(groove) {
+    return { ...groove, ...grooveDerivedLegacy(groove) };
+  }
+
+  function blankGroove() {
+    const ids = ['hat', 'snare', 'kick'];
+    const voices = ids.map((id) => ({
+      ...kitVoiceDef(id),
+      structure: [{ sub: 2 }, { sub: 2 }, { sub: 2 }, { sub: 2 }],
+      lit: [], arts: {}, syll: {},
+    }));
+    return withDerivedLegacy({
+      id: uid(), name: 'Nuevo groove', beatsPerBar: 4, sig: '4/4', swing: 'straight', voices,
+    });
+  }
+
   function sectionBars(s) {
     if (!s) return 0;
     if (s.phrases) return s.phrases.reduce((n, p) => n + p.bars * p.repeat, 0);
@@ -548,6 +700,9 @@
   window.BBData = {
     loadSongs, saveSongs, loadOnoma, saveOnoma,
     loadFolders, saveFolders, blankFolder, folderOf, unclassified,
+    KIT_VOICES, ART_VELOCITY, SWING_AMOUNT, kitVoiceDef,
+    voiceCellCount, voiceCellFraction, cellPlacement,
+    grooveToVoices, grooveDerivedLegacy, withDerivedLegacy, blankGroove,
     uid, blankSong, blankOnoma, blankPhrase, blankFill,
     cloneWithIds,
     sectionBars, totalBars, locate, sectionStartBar, buildSchedule,

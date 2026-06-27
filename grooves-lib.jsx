@@ -2,23 +2,10 @@
  * destino "Grooves". Lista grooves reales agrupados en carpetas + preview del
  * patrón; editar reutiliza el OnomaEditorPanel existente (con su audio). */
 
-const { Icon, IC, RD_CH, RD_CH_KEYS, chColor, NavTabs, TopBar, Logo } = window.RD;
+const { Icon, IC, RD_CH, RD_CH_KEYS, chColor, useIsMobile, NavTabs, TopBar, Logo } = window.RD;
 
 const FOLDER = 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z';
 const FOLDER_OPEN = ['M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2', 'M3 9h18l-2 9a2 2 0 0 1-2 1.7H5A2 2 0 0 1 3 18z'];
-
-/* matchMedia hook → true on phone widths (mirrors the shell's 760px breakpoint) */
-function useIsMobile() {
-  const q = '(max-width: 759px)';
-  const [m, setM] = React.useState(() => window.matchMedia(q).matches);
-  React.useEffect(() => {
-    const mq = window.matchMedia(q);
-    const fn = (e) => setM(e.matches);
-    mq.addEventListener ? mq.addEventListener('change', fn) : mq.addListener(fn);
-    return () => { mq.removeEventListener ? mq.removeEventListener('change', fn) : mq.removeListener(fn); };
-  }, []);
-  return m;
-}
 
 /* stable accent color per groove id */
 function grooveColor(id) {
@@ -164,7 +151,7 @@ function GroovesLibrary(props) {
   const targetFolderForNew = currentFolderId; // 'all'/'none' → unclassified
 
   const createGroove = () => {
-    const g = window.BBData.blankOnoma();
+    const g = window.BBData.blankGroove();
     onCreateGroove(g, targetFolderForNew);
     setEditingId(g.id);
   };
@@ -178,20 +165,15 @@ function GroovesLibrary(props) {
     onFolderDelete(f.id);
   };
 
-  // ── Edit mode: reuse the existing OnomaEditorPanel ──
+  // ── Edit mode: the redesigned per-voice designer ──
   if (editingId) {
     const groove = byId.get(editingId);
     if (!groove) { setEditingId(null); return null; }
     return (
-      <React.Fragment>
-        <TopBar title={groove.name || 'Groove'} sub="Editor de groove" back
-          onBack={() => setEditingId(null)} />
-        <div className="rd-scroll" style={{ padding: 16 }}>
-          <window.OnomaEditorPanel pattern={groove} bpm={bpm} onBpmChange={setBpm}
-            onChange={onGrooveChange}
-            onDelete={(id) => { onGrooveDelete(id); setEditingId(null); }} />
-        </div>
-      </React.Fragment>
+      <window.GrooveDesigner groove={groove} bpm={bpm} onBpmChange={setBpm}
+        onBack={() => setEditingId(null)}
+        onChange={onGrooveChange}
+        onDelete={(id) => { onGrooveDelete(id); setEditingId(null); }} />
     );
   }
 

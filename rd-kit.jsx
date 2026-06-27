@@ -42,6 +42,19 @@ const IC = {
   dots: ['M5 12h.01', 'M12 12h.01', 'M19 12h.01'],
 };
 
+/* matchMedia hook → true on phone widths (mirrors the shell's 760px breakpoint) */
+function useIsMobile() {
+  const q = '(max-width: 759px)';
+  const [m, setM] = React.useState(() => window.matchMedia(q).matches);
+  React.useEffect(() => {
+    const mq = window.matchMedia(q);
+    const fn = (e) => setM(e.matches);
+    mq.addEventListener ? mq.addEventListener('change', fn) : mq.addListener(fn);
+    return () => { mq.removeEventListener ? mq.removeEventListener('change', fn) : mq.removeListener(fn); };
+  }, []);
+  return m;
+}
+
 /* helper: resolve a channel color from a section/groove color name */
 function chColor(name) {
   if (!name) return RD_CH.orange;
@@ -287,6 +300,6 @@ function NavTabs({ active, onNavigate, items = RD_NAV }) {
 }
 
 window.RD = {
-  RD_CH, RD_CH_KEYS, chColor, Icon, IC, LCD, Knob, DrumStaff, LANE_DEFS, NoteHead,
+  RD_CH, RD_CH_KEYS, chColor, useIsMobile, Icon, IC, LCD, Knob, DrumStaff, LANE_DEFS, NoteHead,
   Logo, Avatar, SyncBadge, TopBar, RD_NAV, NavRail, NavTabs,
 };
