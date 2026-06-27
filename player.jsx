@@ -602,216 +602,171 @@ function PhraseProgress({ section, eng }) {
   );
 }
 
+/* ── Play-along cockpit pieces (rediseño) ─────────────────── */
+function PlayerSections({ song, eng }) {
+  return (
+    <div style={{ display: 'flex', gap: 3, height: 9 }}>
+      {song.sections.map((s, i) => {
+        const c = window.BBData.getColor(s.color || 'orange').ink;
+        const sb = window.BBData.sectionBars(s);
+        const state = i < eng.sectionIdx ? 'done' : i === eng.sectionIdx ? 'on' : 'idle';
+        const prog = sb > 0 ? Math.min(100, ((eng.barInSection + 1) / sb) * 100) : 0;
+        return (
+          <div key={s.id} onClick={() => eng.jumpToSection(i)} title={s.name}
+            style={{ flex: sb, position: 'relative', cursor: 'pointer', background: 'var(--rd-ink)', boxShadow: 'inset 0 1px 2px rgba(0,0,0,.6)' }}>
+            {state === 'done' && <div style={{ position: 'absolute', inset: 0, background: c, opacity: .35 }} />}
+            {state === 'on' && <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: `${prog}%`, background: c, boxShadow: `0 0 8px ${c}` }} />}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PlayerBeatDots({ beats, current, accent }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 18 }}>
+      {Array.from({ length: beats }).map((_, b) => {
+        const on = b === current;
+        const c = on ? (accent && b === 0 ? 'var(--rd-led-soft)' : 'var(--rd-led)') : 'var(--rd-ink)';
+        return (
+          <div key={b} style={{ width: on ? 30 : 18, height: on ? 30 : 18, borderRadius: '50%', background: c,
+            boxShadow: on ? `0 0 18px ${c}, 0 0 4px ${c}` : 'inset 0 1px 2px rgba(0,0,0,.6)',
+            transition: 'all .08s', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#160a02', fontWeight: 800, fontFamily: 'var(--rd-mono)', fontSize: 13 }}>
+            {on ? b + 1 : ''}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ChangeAlert({ eng }) {
+  const type = eng.section.endCue?.type;
+  const label = type === 'fill' ? 'FILL' : type === 'stop' ? 'PARADA' : 'CAMBIO';
+  const next = eng.nextSection;
+  const nextC = next ? window.BBData.getColor(next.color || 'orange').ink : 'var(--rd-warn)';
+  const n = Math.max(1, eng.barsLeftInSection + 1);
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 16px',
+      background: 'linear-gradient(90deg, rgba(255,210,58,.2), rgba(255,210,58,.04))',
+      border: `1px solid ${nextC}`, boxShadow: `0 0 24px ${nextC}22` }}>
+      <div className="blink mono" style={{ fontSize: 46, fontWeight: 800, lineHeight: .8, color: 'var(--rd-warn)', textShadow: '0 0 18px rgba(255,210,58,.5)' }}>{n}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="eng" style={{ fontSize: 9, color: 'var(--rd-warn)' }}>{n === 1 ? 'compás para' : 'compases para'} · {label}</div>
+        <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-.02em', color: nextC, textShadow: `0 0 16px ${nextC}55`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {next ? next.name : 'fin de la canción'}
+        </div>
+      </div>
+      {eng.section.endCue?.say && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: nextC }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5L6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a9 9 0 0 1 0 14"/></svg>
+          <span className="eng" style={{ fontSize: 8.5 }}>voz</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Player({ song, onomaItems, onBack, tweaks }) {
   const eng = usePlayerEngine(song, onomaItems, tweaks);
-  const beatViz = tweaks?.beatViz || 'dots';
-  const cueMode = tweaks?.cueMode || 'banner';
-  const [sidebarOpen, setSidebarOpen] = React.useState(true);
-  const [sheetOpen, setSheetOpen] = React.useState(false);
+  const RD = window.RD; const RP = window.RDPerf;
+  const [viewMode, setViewModeState] = React.useState(() => window.BBData.loadViewMode());
+  const setViewMode = (m) => { setViewModeState(m); window.BBData.saveViewMode(m); };
 
+  // rAF re-render while running so eng.beatPhase (a ref snapshot) refreshes
+  // each frame → smooth playhead / falling motion.
+  const [, forceTick] = React.useState(0);
+  React.useEffect(() => {
+    if (!eng.running) return;
+    let raf;
+    const loop = () => { forceTick((t) => (t + 1) % 1e9); raf = requestAnimationFrame(loop); };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [eng.running]);
+
+  const beats = song.beatsPerBar || 4;
   const sectionTotal = window.BBData.sectionBars(eng.section);
-  const sectionProgress = sectionTotal > 0
-    ? Math.min(100, ((eng.barInSection + 1) / sectionTotal) * 100) : 0;
-  const sectionColor = window.BBData.getColor(eng.section.color || 'orange');
+  const sectionColor = window.BBData.getColor(eng.section.color || 'orange').ink;
+  const phase = Math.max(0, Math.min(0.999, (eng.beatInBar + (eng.beatPhase || 0)) / beats));
 
-  const showBigNumbers = cueMode === 'big-numbers' && eng.endCueActive
-    && eng.barsLeftInSection <= 1;
-  const bigNumber = Math.max(1, eng.barsLeftInSection + 1);
-  const screenTint = cueMode === 'screen-tint' && eng.endCueActive;
-  const nextGlow = cueMode === 'next-glow' && eng.endCueActive;
-  const banner = cueMode === 'banner' && eng.endCueActive;
+  const fill = eng.activeOnomaItem;
+  const fillVoices = React.useMemo(() => fill ? window.BBData.grooveToVoices(fill).voices : [], [fill]);
+  const fillBeats = fill ? window.BBData.grooveBeatsPerBar(fill) : beats;
 
   return (
-    <div className={`player has-sidebar${screenTint ? ' tint' : ''}${eng.endCueActive ? ' cue-on' : ''}${sidebarOpen ? '' : ' sidebar-closed'}`}
-         style={{ '--c-section': sectionColor.ink }}>
-      <div className="player-bar">
-        <button className="btn ghost icon" onClick={onBack} title="Volver">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-        </button>
-        <button className="btn ghost icon pl-sidebar-toggle" onClick={() => setSidebarOpen((v) => !v)} title="Estructura">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M3 12h12M3 18h18"/></svg>
-        </button>
-        <div className="player-title">
-          <span className="player-song">{song.title}</span>
-          {song.artist && <span className="player-artist">{song.artist}</span>}
-        </div>
-        <div className="player-progress">
-          {song.sections.map((s, i) => {
-            const c = window.BBData.getColor(s.color || 'orange');
-            const sb = window.BBData.sectionBars(s);
-            return (
-              <span key={s.id}
-                    className={`pp-seg${i === eng.sectionIdx ? ' on' : ''}${i < eng.sectionIdx ? ' done' : ''}`}
-                    style={{ flex: sb, '--c-ink': c.ink }}
-                    onClick={() => eng.jumpToSection(i)}
-                    title={s.name}>
-                {i === eng.sectionIdx && (
-                  <span className="pp-fill" style={{ width: `${sectionProgress}%` }} />
-                )}
-              </span>
-            );
-          })}
-        </div>
-        <button className="btn ghost icon pl-sheet-btn" onClick={() => setSheetOpen(true)} title="Lista">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
-        </button>
-      </div>
-
-      {banner && (
-        <div className="cue-banner">
-          <span className="cue-banner-eye"><span className="cue-pulse" /></span>
-          <span className="cue-banner-text">
-            {eng.section.endCue?.type === 'fill' ? 'FILL' :
-             eng.section.endCue?.type === 'stop' ? 'PARADA' : 'CAMBIO'}
-            <span className="cue-banner-in"> en </span>
-            <b className="num-mono">{eng.barsLeftInSection + 1}</b>
-            <span className="cue-banner-in"> {eng.barsLeftInSection === 0 ? 'compás' : 'compases'}</span>
-          </span>
-          {eng.section.endCue?.say && (
-            <span className="cue-banner-say">"{eng.section.endCue.say}"</span>
-          )}
-        </div>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative', minHeight: 0 }}>
+      {/* ambient amber tint during the change cue */}
+      {eng.endCueActive && !eng.countingIn && (
+        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 6,
+          background: 'radial-gradient(130% 90% at 50% 0%, rgba(255,178,58,.16), transparent 65%)' }} />
       )}
 
-      <div className="player-shell">
-        {sidebarOpen && <SectionSidebar song={song} eng={eng} />}
-        <div className="player-main">
-          <div className="player-grid">
-            <div className={`player-now${eng.countingIn ? ' countin' : ''}`}>
-              {eng.countingIn ? (<>
-                <div className="player-now-label">CUENTA DE ENTRADA</div>
-                <div className="player-now-name num-mono">{eng.countInBarsLeft}</div>
-                <div className="player-now-bars">
-                  <span className="player-now-unit">
-                    {eng.countInBarsLeft === 1 ? 'compás para empezar' : 'compases para empezar'}
-                  </span>
-                </div>
-              </>) : (<>
-              <div className="player-now-label">
-                <span className="player-now-dot" style={{ background: sectionColor.ink }} />
-                AHORA · sección {eng.sectionIdx + 1}/{song.sections.length}
-              </div>
-              <div className="player-now-name">{eng.section.name}</div>
-              <div className="player-now-bars">
-                <span className="num-mono player-now-cur">{eng.barInSection + 1}</span>
-                <span className="player-now-slash">/</span>
-                <span className="num-mono player-now-tot">{sectionTotal}</span>
-                <span className="player-now-unit">compases</span>
-              </div>
-              </>)}
-            </div>
-
-            <div className="player-viz">
-              {eng.activeOnomaItem ? (
-                <OnomaOverlay onoma={eng.activeOnomaItem}
-                              currentStep={eng.activeOnomaStep}
-                              beatsPerBar={song.beatsPerBar}
-                              label="FILL" />
-              ) : (
-                <window.BeatViz mode={beatViz} beatsPerBar={song.beatsPerBar}
-                                currentBeat={eng.beatInBar} accent={eng.accent}
-                                beatPhase={eng.beatPhase} />
-              )}
-            </div>
-
-            <div className={`player-next${!eng.countingIn ? ' has-progress' : ''}${nextGlow && !eng.countingIn ? ' glow' : ''}${eng.endCueActive && !eng.countingIn ? ' active' : ''}`}>
-              {showBigNumbers && !eng.activeOnomaItem && (
-                <div className="big-numbers" key={`big-${eng.barsLeftInSection}`}>
-                  <div className="big-numbers-n">{bigNumber}</div>
-                  <div className="big-numbers-lbl">
-                    {eng.section.endCue?.say ?
-                      `"${eng.section.endCue.say}"` :
-                      (eng.barsLeftInSection === 0 ? 'último compás' : 'compases')}
-                  </div>
-                </div>
-              )}
-              {eng.countingIn ? (<>
-                <div className="player-next-label">
-                  EMPIEZA EN
-                  <span className="player-next-countdown num-mono">
-                    {eng.countInBarsLeft} {eng.countInBarsLeft === 1 ? 'compás' : 'compases'}
-                  </span>
-                </div>
-                <div className="player-next-name">{song.sections[0].name}</div>
-                <div className="player-next-meta">
-                  <span className="num-mono">{window.BBData.sectionBars(song.sections[0])} compases</span>
-                </div>
-              </>) : (<>
-                <div className="pp-header">
-                  <span className="pp-header-section">{eng.section.name}</span>
-                  {eng.endCueActive && (
-                    <span className="player-next-countdown num-mono">
-                      {eng.barsLeftInSection + 1} {eng.barsLeftInSection === 0 ? 'compás' : 'compases'}
-                    </span>
-                  )}
-                </div>
-                <PhraseProgress section={eng.section} eng={eng} />
-                <div className={`pp-footer${eng.nextSection ? '' : ' dim'}`}>
-                  <span className="pp-footer-label">PRÓXIMO</span>
-                  {eng.nextSection ? (
-                    <>
-                      <span className="pp-footer-name">{eng.nextSection.name}</span>
-                      <span className="pp-footer-bars">
-                        {window.BBData.sectionBars(eng.nextSection)} comp
-                      </span>
-                    </>
-                  ) : (
-                    <span className="pp-footer-name">fin de la canción</span>
-                  )}
-                </div>
-              </>)}
-            </div>
-          </div>
-
+      {/* header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', flexShrink: 0,
+        borderBottom: '1px solid #000', boxShadow: '0 1px 0 var(--rd-edge-hi)',
+        background: 'linear-gradient(180deg,var(--rd-panel-2),var(--rd-panel))' }}>
+        <button className="btn icon ghost" onClick={onBack} title="Volver"><RD.Icon d={RD.IC.back} size={18} /></button>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 17, fontWeight: 800, letterSpacing: '-.02em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{song.title}</div>
+          <div className="eng" style={{ fontSize: 9, marginTop: 2 }}>{song.artist ? `${song.artist} · ` : ''}{eng.bpm} BPM</div>
         </div>
+        <div style={{ marginLeft: 'auto' }}><RP.ViewToggle mode={viewMode} onChange={setViewMode} /></div>
       </div>
 
-      {sheetOpen && (
-        <div className="pl-sheet" onClick={() => setSheetOpen(false)}>
-          <div className="pl-sheet-panel" onClick={(e) => e.stopPropagation()}>
-            <div className="pl-sheet-bar">
-              <span className="label">Estructura</span>
-              <button className="btn icon ghost" onClick={() => setSheetOpen(false)}>✕</button>
-            </div>
-            <SectionSidebar song={song} eng={{
-              ...eng,
-              jumpToSection: (i) => { eng.jumpToSection(i); setSheetOpen(false); },
-              jumpToBar: (b) => { eng.jumpToBar(b); setSheetOpen(false); },
-              jumpToPhrase: (s, p) => { eng.jumpToPhrase(s, p); setSheetOpen(false); },
-            }} />
-          </div>
-        </div>
-      )}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, padding: 16, minHeight: 0, overflow: 'auto' }}>
+        <PlayerSections song={song} eng={eng} />
 
-      <div className="player-controls">
-        <div className="player-bpm">
-          <span className="label">BPM · {(() => {
-            const sd = eng.section.subdivision != null
-              ? eng.section.subdivision : (song.subdivision || 1);
-            return sd === 1 ? 'negras' : sd === 2 ? 'corcheas'
-                   : sd === 3 ? 'tresillos' : 'semicorcheas';
-          })()}</span>
-          <div className="bpm-stepper">
-            <button className="btn icon ghost" onClick={() => eng.setBpm(Math.max(20, eng.bpm - 1))}>−</button>
-            <div className="bpm-value num-mono">{eng.bpm}</div>
-            <button className="btn icon ghost" onClick={() => eng.setBpm(Math.min(300, eng.bpm + 1))}>+</button>
+        {/* now */}
+        {!eng.countingIn && (
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <span className="eng" style={{ fontSize: 9, color: sectionColor }}>ahora · {eng.sectionIdx + 1}/{song.sections.length}</span>
+            <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-.02em', color: sectionColor, textShadow: `0 0 14px ${sectionColor}44` }}>{eng.section.name}</span>
+            <span className="mono" style={{ fontSize: 11, color: 'var(--rd-text-mut)', marginLeft: 'auto' }}>compás {eng.barInSection + 1}/{sectionTotal}</span>
           </div>
-          <input type="range" min="40" max="220" value={eng.bpm} className="bpm-slider"
-                 onChange={(e) => eng.setBpm(Number(e.target.value))} />
-        </div>
-        <div className="player-transport">
-          <button className="btn ghost" onClick={eng.restart} title="Reiniciar">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
-          </button>
-          {eng.running ? (
-            <button className="btn play-btn pause" onClick={eng.pause}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/></svg>
-            </button>
+        )}
+
+        {/* hero */}
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0 }}>
+          {eng.countingIn ? (
+            <div style={{ textAlign: 'center' }}>
+              <div className="eng" style={{ fontSize: 10, color: 'var(--rd-led)' }}>cuenta de entrada</div>
+              <div className="mono blink" style={{ fontSize: 96, fontWeight: 800, lineHeight: 1, color: 'var(--rd-led)', textShadow: '0 0 30px rgba(255,122,26,.5)' }}>{eng.countInBarsLeft}</div>
+            </div>
+          ) : fill ? (
+            <div style={{ width: '100%' }}>
+              {viewMode === 'falling'
+                ? <RP.FallingGroove voices={fillVoices} beats={fillBeats} phase={phase} H={360} />
+                : <RP.PerfGroove voices={fillVoices} beats={fillBeats} phase={phase} h={46} />}
+            </div>
           ) : (
-            <button className="btn primary play-btn" onClick={eng.play}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-            </button>
+            <div style={{ textAlign: 'center' }}>
+              <PlayerBeatDots beats={beats} current={eng.beatInBar} accent={eng.accent} />
+              <div className="eng" style={{ fontSize: 9, marginTop: 16, color: 'var(--rd-text-faint)' }}>toca tu groove · el fill aparece aquí</div>
+            </div>
           )}
+        </div>
+
+        {/* change cue */}
+        {eng.endCueActive && !eng.countingIn && <ChangeAlert eng={eng} />}
+
+        {/* transport */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button className="key" style={{ width: 34, height: 34 }} onClick={() => eng.setBpm(Math.max(20, eng.bpm - 1))}>−</button>
+            <div className="lcd" style={{ padding: '4px 10px' }}><span className="digits mono" style={{ fontSize: 20 }}>{eng.bpm}</span></div>
+            <button className="key" style={{ width: 34, height: 34 }} onClick={() => eng.setBpm(Math.min(300, eng.bpm + 1))}>+</button>
+          </div>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14 }}>
+            <button className="key" style={{ width: 46, height: 46 }} onClick={eng.restart} title="Reiniciar">
+              <RD.Icon d={['M1 4v6h6', 'M3.51 15a9 9 0 1 0 2.13-9.36L1 10']} size={18} />
+            </button>
+            <button className={'key' + (eng.running ? ' play' : '')} style={{ width: 64, height: 64 }}
+              onClick={() => eng.running ? eng.pause() : eng.play()}>
+              <RD.Icon d={eng.running ? RD.IC.pause : RD.IC.play} size={24} fill={eng.running ? 'none' : 'currentColor'} />
+            </button>
+          </div>
         </div>
       </div>
     </div>
