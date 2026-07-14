@@ -1,0 +1,468 @@
+/* BackBeat — iOS layouts (iPad portrait/landscape, iPhone portrait/landscape).
+ *
+ * Strategy: leave the desktop player markup and CSS in place. These rules
+ * only activate inside touch viewports (pointer: coarse) that match the
+ * target form factors, and lean on `display: contents` / grid reordering
+ * to repurpose the existing DOM without changing player.jsx structure.
+ *
+ * One piece is added to the JSX: `.player-section-chips` — a horizontal
+ * strip of large section pills used by the iPad portrait "hero" layout
+ * (Variant B). It is hidden by default and only shown in that breakpoint.
+ */
+
+/* ─── Safe area variables ───────────────────────────────────── */
+/* Honour the iOS notch and home indicator. env() falls back to 0px on
+ * platforms that don't expose safe-area-inset-*, so this is a no-op for
+ * desktop. We use `max()` to keep a minimum padding from the design. */
+:root {
+  --sa-top: env(safe-area-inset-top, 0px);
+  --sa-right: env(safe-area-inset-right, 0px);
+  --sa-bottom: env(safe-area-inset-bottom, 0px);
+  --sa-left: env(safe-area-inset-left, 0px);
+}
+
+/* ─── Mobile-Safari sizing & touch hygiene ──────────────────── */
+/* `100dvh` follows the dynamic viewport (Safari URL bar showing/hiding)
+ * so the player doesn't get cropped when the bar slides. Falls back to
+ * `100%` on older browsers because both rules below resolve. */
+@supports (height: 100dvh) {
+  html, body, #root { min-height: 100dvh; }
+}
+/* `touch-action: manipulation` on interactive elements stops iOS from
+ * waiting ~300ms for a double-tap-to-zoom — taps register immediately. */
+.player button,
+.player input[type="range"],
+.psc-chip,
+.onoma-list-item,
+.onoma-cell,
+.onoma-syll-btn { touch-action: manipulation; }
+/* Avoid accidental text selection on long-press inside transport / chips. */
+.player-bar, .player-controls, .player-section-chips, .player-now, .player-next {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* ─── Section chips strip (used by iPad portrait Variant B) ── */
+/* Always rendered in the DOM, hidden by default. Each breakpoint that
+ * needs it sets display:flex below. */
+.player-section-chips { display: none; }
+
+.psc-chip {
+  appearance: none;
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background .15s, border-color .15s, color .15s, opacity .15s;
+}
+.psc-chip:hover { color: var(--text); border-color: var(--border-strong); }
+.psc-chip.done { opacity: 0.55; color: var(--text-muted); }
+.psc-chip.on {
+  background: var(--c-tint, rgba(251,146,60,.14));
+  border-color: var(--c, var(--accent));
+  color: var(--c, var(--accent));
+  font-weight: 700;
+}
+.psc-chip .psc-num {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  opacity: 0.7;
+}
+.psc-chip.on .psc-num { opacity: 1; }
+
+/* ─── iPad PORTRAIT — Variant B (hero pulse + chips top) ────── */
+/* Covers iPad mini portrait (768), iPad (810), iPad Pro 11 (834),
+ * iPad Pro 12.9 (1024). `pointer: coarse` keeps desktop with a window
+ * resized to portrait out of scope. */
+@media (orientation: portrait) and (min-width: 600px) and (max-width: 1180px) and (pointer: coarse) {
+
+  /* Safe area: topbar respects the notch on the iPhone-Pro-bezel-style
+   * iPads (none today have a notch, but landscape-locked PWAs can still
+   * gain non-zero insets). */
+  .player .player-bar {
+    padding-top: max(12px, var(--sa-top));
+    padding-left: max(18px, var(--sa-left));
+    padding-right: max(18px, var(--sa-right));
+  }
+  .player .player-controls {
+    padding-bottom: max(14px, var(--sa-bottom));
+    padding-left: max(22px, var(--sa-left));
+    padding-right: max(22px, var(--sa-right));
+  }
+
+  /* Hide the thin progress strip in the topbar — the chips below
+   * replace it as the section navigator on this layout. */
+  .player .player-bar .player-progress { display: none; }
+
+  /* Show the chip strip just below the topbar. */
+  .player .player-section-chips {
+    display: flex;
+    gap: 6px;
+    padding: 10px 16px;
+    background: var(--bg-elev);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-shrink: 0;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .player .player-section-chips::-webkit-scrollbar { display: none; }
+
+  /* Sidebar is hidden — chips replace it. The sheet button (≡) in the
+   * topbar still opens the full sidebar in a modal sheet. */
+  .player .pl-sidebar { display: none; }
+  .player .pl-sidebar-toggle { display: none; }
+  .player.has-sidebar .player-shell { padding-left: 0; }
+
+  /* Center the grid as a hero stack: now-info | pulse | next-compact.
+   * We deliberately stay with the 3-row grid so existing logic for
+   * countdowns and cues keeps working. */
+  .player .player-grid {
+    grid-template-rows: auto 1fr auto;
+    grid-template-columns: 1fr;
+    gap: 18px;
+    padding: 24px;
+    align-items: center;
+    justify-items: center;
+  }
+
+  /* NOW card becomes a centered header above the pulse. */
+  .player .player-now {
+    text-align: center;
+    align-items: center;
+    gap: 6px;
+  }
+  .player .player-now-name { font-size: clamp(40px, 6.5vw, 64px); }
+  .player .player-now-bars {
+    justify-content: center;
+    font-size: clamp(28px, 4.5vw, 40px);
+  }
+
+  /* Viz: hero pulse — sized close to the mockup (280px) but adaptive. */
+  .player .player-viz { width: 100%; }
+  .player .player-viz .bv-circle-wrap { width: min(300px, 55vmin); }
+
+  /* NEXT stays as a panel below the pulse showing the current phrase's
+   * iteration progress + bars (.pp-list capped) and the PRÓXIMO footer.
+   * Capping the list keeps the pulse the visual hero on this layout. */
+  .player .player-next {
+    width: 100%;
+    padding: 14px 20px;
+    gap: 10px;
+  }
+  .player .player-next .pp-list { max-height: 140px; }
+
+  /* Bigger touch targets in the topbar / controls. */
+  .player .player-bar .btn.icon { min-width: 44px; min-height: 44px; }
+  .player .bpm-stepper .btn { min-width: 44px; min-height: 44px; }
+  .player .play-btn { width: 72px; height: 72px; }
+
+  /* Sheet — when the user taps ≡, sidebar slides in from the left.
+   * (Markup for .pl-sheet already exists in player.jsx.) */
+  .pl-sheet .pl-sheet-panel { max-width: 420px; }
+}
+
+/* ─── iPad LANDSCAPE — 3-column balanced ────────────────────── */
+/* Targets iPad in landscape: 1024×768 through 1366×1024 (Pro 12.9). The
+ * `pointer: coarse` filter keeps the desktop landscape layout (already
+ * defined in player.css at min-width:900px) untouched on laptops. */
+@media (orientation: landscape) and (min-width: 900px) and (max-width: 1366px) and (min-height: 600px) and (pointer: coarse) {
+
+  .player .player-bar {
+    padding-top: max(12px, var(--sa-top));
+    padding-left: max(18px, var(--sa-left));
+    padding-right: max(18px, var(--sa-right));
+  }
+  .player .player-controls {
+    padding-bottom: max(14px, var(--sa-bottom));
+    padding-left: max(22px, var(--sa-left));
+    padding-right: max(22px, var(--sa-right));
+  }
+  /* Sidebar respects the home-indicator side inset. */
+  .player .pl-sidebar { padding-left: max(0px, var(--sa-left)); }
+
+  /* Chips strip hidden — sidebar carries section navigation here. */
+  .player .player-section-chips { display: none; }
+
+  /* Force sidebar visible and at exactly 240px (vs desktop's clamp). */
+  .player .pl-sidebar {
+    width: 240px;
+    min-width: 240px;
+    max-width: 240px;
+  }
+
+  /* Grid: NOW on top of VIZ in the centre column; NEXT (which already
+   * contains the phrase-progress list) on the right at 320px. We keep
+   * the desktop's 2-col landscape rule (player.css L412) and just
+   * tighten the proportions on iPad. */
+  .player .player-grid {
+    grid-template-columns: 1fr 320px;
+    grid-template-rows: auto 1fr;
+    gap: 22px;
+    padding: 24px;
+  }
+  .player .player-now { grid-column: 1; grid-row: 1; }
+  .player .player-viz { grid-column: 1; grid-row: 2; }
+  .player .player-next { grid-column: 2; grid-row: 1 / -1; }
+
+  .player .player-viz .bv-circle-wrap { width: min(280px, 45vmin); }
+
+  /* Touch targets. */
+  .player .player-bar .btn.icon { min-width: 44px; min-height: 44px; }
+  .player .bpm-stepper .btn { min-width: 44px; min-height: 44px; }
+}
+
+/* ─── iPhone LANDSCAPE — cockpit split ──────────────────────── */
+/* Triggers when height collapses below ~500px in landscape — covers
+ * iPhone SE, mini, 12/13/14/15 standard, Pro Max in landscape. */
+@media (orientation: landscape) and (max-height: 500px) {
+
+  /* Mini topbar — half the vertical real estate of the default. */
+  .player .player-bar {
+    padding: 6px max(10px, var(--sa-left)) 6px max(10px, var(--sa-right));
+    padding-top: max(6px, var(--sa-top));
+    gap: 8px;
+  }
+  .player .player-bar .btn.icon {
+    padding: 6px 8px;
+    min-width: 36px;
+    min-height: 36px;
+  }
+  .player .player-song { font-size: 12px; }
+  .player .player-artist { display: none; }
+  .player .player-progress { height: 5px; min-width: 60px; }
+  .player .player-section-chips { display: none; }
+
+  /* Body: sidebar slim | pulse center | next + countdown right.
+   * `.player-shell` is the existing flex row that holds sidebar + main. */
+  .player .player-shell {
+    flex: 1;
+    min-height: 0;
+  }
+  .player .pl-sidebar {
+    width: 150px;
+    min-width: 150px;
+    padding: 6px;
+    padding-left: max(6px, var(--sa-left));
+  }
+  .player .pl-sidebar .pl-sidebar-head { padding: 4px 4px 6px; }
+  .player .pl-sec-main { padding: 6px 8px; }
+  .player .pl-sec-name { font-size: 12px; }
+  .player .pl-sec-meta { font-size: 10.5px; gap: 6px; }
+  /* The phrase listing inside the sidebar is too tall for this height —
+   * collapse it; users can still tap the section to jump. */
+  .player .pl-sidebar .pl-sec-phrases { display: none; }
+
+  /* Centre column: hero pulse + section name + iteration progress.
+   * The default .player-grid is auto/1fr/auto rows; in landscape mobile
+   * we stack vertically inside that single column. */
+  .player .player-grid {
+    grid-template-columns: 1fr 200px;
+    grid-template-rows: auto 1fr;
+    gap: 10px;
+    padding: 10px 12px;
+    padding-right: max(12px, var(--sa-right));
+    align-items: stretch;
+  }
+  .player .player-now {
+    grid-column: 1;
+    grid-row: 1;
+    text-align: center;
+    align-items: center;
+    gap: 2px;
+  }
+  .player .player-now-name { font-size: 22px; }
+  .player .player-now-bars { font-size: 18px; margin-top: 2px; }
+  .player .player-now-unit { font-size: 10px; margin-left: 4px; }
+  .player .player-viz {
+    grid-column: 1;
+    grid-row: 2;
+    padding: 0;
+  }
+  .player .player-viz .bv-circle-wrap { width: min(180px, 38vh); }
+
+  /* NEXT panel: compact, vertical, with the countdown as the hero. */
+  .player .player-next {
+    grid-column: 2;
+    grid-row: 1 / -1;
+    padding: 10px 12px;
+    gap: 6px;
+  }
+  .player .player-next-name { font-size: 16px; }
+  .player .player-next .pp-header { font-size: 10px; }
+  .player .player-next .pp-list { display: none; }
+  .player .player-next .pp-footer { display: none; }
+  .player .player-next-countdown { font-size: 14px; }
+
+  /* Bottom controls slim down — they keep their position at the foot. */
+  .player .player-controls {
+    padding: 6px max(12px, var(--sa-right)) max(6px, var(--sa-bottom)) max(12px, var(--sa-left));
+    gap: 10px;
+  }
+  .player .player-bpm { gap: 2px; }
+  .player .player-bpm .label { font-size: 10px; margin-bottom: 0; }
+  .player .bpm-value { font-size: 18px; min-width: 50px; }
+  .player .bpm-stepper .btn { width: 32px; min-width: 32px; min-height: 36px; padding: 4px; }
+  .player .bpm-slider { height: 4px; }
+  .player .play-btn { width: 48px; height: 48px; }
+  .player .player-transport .btn.ghost { min-width: 40px; min-height: 40px; padding: 6px; }
+}
+
+/* ─── Grooves / Onoma — iOS adjustments ─────────────────────── */
+/* The desktop two-column layout (280px sidebar + main) already works for
+ * iPad. On iPad portrait we just tighten the sidebar and add safe areas;
+ * on iPhone portrait we transform the sidebar into a horizontal pattern
+ * picker (tabs) — matching the mockup-grooves mobile layout. */
+
+/* iPad portrait — slightly narrower sidebar, safe areas on the page. */
+@media (orientation: portrait) and (min-width: 600px) and (max-width: 1180px) and (pointer: coarse) {
+  .onoma-page {
+    padding-left: max(18px, var(--sa-left));
+    padding-right: max(18px, var(--sa-right));
+    padding-bottom: max(80px, var(--sa-bottom));
+  }
+  .onoma-layout { grid-template-columns: 240px 1fr; }
+  /* Bigger tap targets inside the editor toolbar. */
+  .onoma-list-item { min-height: 56px; }
+  .onoma-toolbar .btn { min-height: 44px; }
+}
+
+/* iPad landscape — keep the desktop layout but apply safe areas. */
+@media (orientation: landscape) and (min-width: 900px) and (max-width: 1366px) and (min-height: 600px) and (pointer: coarse) {
+  .onoma-page {
+    padding-left: max(18px, var(--sa-left));
+    padding-right: max(18px, var(--sa-right));
+  }
+  .onoma-list-item { min-height: 52px; }
+}
+
+/* iPhone portrait — sidebar becomes a horizontal pattern strip. */
+@media (orientation: portrait) and (max-width: 600px) {
+  .onoma-page {
+    padding: 16px max(14px, var(--sa-left)) max(80px, var(--sa-bottom)) max(14px, var(--sa-right));
+  }
+  .onoma-layout {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  /* Horizontal scroll of patterns instead of vertical stack. */
+  .onoma-list {
+    flex-direction: row;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 6px;
+    gap: 6px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .onoma-list::-webkit-scrollbar { display: none; }
+  .onoma-list-item {
+    flex-shrink: 0;
+    min-width: 160px;
+    max-width: 220px;
+    padding: 8px 12px;
+    min-height: 56px;
+  }
+  /* The 16-cell preview is too noisy at this width — hide it on phones. */
+  .onoma-list-item .onoma-list-preview { display: none; }
+
+  /* Toolbar wraps tighter and play button is full-width-ish. */
+  .onoma-toolbar { gap: 10px; padding: 10px; }
+  .onoma-toolbar .btn { min-height: 44px; }
+  .onoma-main { padding: 14px; }
+  .onoma-editor { gap: 12px; }
+  .onoma-name { font-size: 16px; }
+
+  /* Grid scrolls horizontally — keep its native behaviour but increase
+   * touch-friendliness of the cells. */
+  .onoma-grid-wrap { padding: 6px; -webkit-overflow-scrolling: touch; }
+}
+
+/* ─── iPhone PORTRAIT — augment existing mobile rules ────────── */
+/* The existing player.css already has (max-width: 520px) tweaks. Here
+ * we layer safe-area-inset support, larger touch targets, and a chip
+ * strip that mirrors the iPad-portrait one but smaller. */
+@media (orientation: portrait) and (max-width: 600px) {
+
+  .player .player-bar {
+    padding-top: max(12px, var(--sa-top));
+    padding-left: max(14px, var(--sa-left));
+    padding-right: max(14px, var(--sa-right));
+  }
+  .player .player-controls {
+    padding-bottom: max(12px, var(--sa-bottom));
+    padding-left: max(14px, var(--sa-left));
+    padding-right: max(14px, var(--sa-right));
+  }
+  .player .pl-sidebar { display: none; }
+
+  /* Chip strip — opt-in for phones too. Slightly smaller than iPad. */
+  .player .player-section-chips {
+    display: flex;
+    gap: 5px;
+    padding: 8px 12px;
+    background: var(--bg-elev);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-shrink: 0;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .player .player-section-chips::-webkit-scrollbar { display: none; }
+  .player .psc-chip { padding: 6px 10px; font-size: 12px; }
+
+  /* Compact next bar (matches the iPad portrait B treatment so phone
+   * users get the same one-line summary instead of the full phrase
+   * progress, which doesn't fit at this width). */
+  .player .player-next {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+  }
+  .player .player-next-name { font-size: 18px; flex: 1; min-width: 0; }
+  .player .player-next .pp-header,
+  .player .player-next .pp-list,
+  .player .player-next .pp-footer { display: none; }
+  .player .player-next .player-next-countdown { margin-left: auto; }
+
+  /* Touch targets ≥ 44px in transport and BPM stepper. */
+  .player .player-bar .btn.icon { min-width: 44px; min-height: 44px; }
+  .player .bpm-stepper .btn { min-width: 44px; min-height: 44px; padding: 6px; }
+  .player .player-transport .btn.ghost { min-width: 44px; min-height: 44px; }
+  /* The mobile play-btn shrinks in player.css to 56px — keep that but
+   * make sure tap area is at least 44 even after the shrink. */
+  .player .play-btn { min-width: 56px; min-height: 56px; }
+
+  /* Grid centred for the hero pulse. */
+  .player .player-grid {
+    grid-template-rows: auto 1fr auto;
+    grid-template-columns: 1fr;
+    padding: 16px;
+    gap: 12px;
+    align-items: center;
+    justify-items: center;
+  }
+  .player .player-now {
+    text-align: center;
+    align-items: center;
+    width: 100%;
+  }
+  .player .player-now-bars { justify-content: center; }
+  .player .player-viz { width: 100%; }
+  .player .player-viz .bv-circle-wrap { width: min(280px, 70vmin); }
+}

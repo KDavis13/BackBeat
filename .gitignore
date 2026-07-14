@@ -3,3 +3,8 @@ node_modules/
 *.log
 .vscode/
 .idea/
+
+# Design handoff + local scratch (not app code)
+BackBeat.zip
+_designpkg/
+_inspect/
