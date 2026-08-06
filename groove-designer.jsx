@@ -70,6 +70,44 @@ function Pad({ on, color, art = 'normal', cymbal, padH = 30, current, onClick })
 }
 
 /* ── One voice lane ───────────────────────────────────────── */
+/* Mobile: one active voice, full width, big pads, no label col / no inline
+ * figure pickers (subdivision is edited via the separate beat-figure control). */
+function MobileVoiceGrid({ voice, beats, padH = 40, currentCell, activeBeat, onCell, onSelectBeat }) {
+  const color = DCH[voice.color] || voice.color || 'var(--rd-led)';
+  const layout = voiceLayout(voice);
+  const lit = new Set(voice.lit || []);
+  return (
+    <div style={{ display: 'flex', gap: 4 }}>
+      {layout.map((beat, bi) => {
+        const on = bi === activeBeat;
+        const cells = beat.halves
+          ? beat.halves.map((h, hi) => ({ hi, list: h.cells })) : [{ hi: 0, list: beat.cells }];
+        return (
+          <div key={bi} onClick={() => onSelectBeat(bi)} style={{ flex: 1, minWidth: 0, cursor: 'pointer',
+            padding: 4, borderRadius: 2, background: on ? 'rgba(255,122,26,.10)' : 'transparent',
+            boxShadow: on ? 'inset 0 0 0 1px rgba(255,122,26,.35)' : 'inset 0 0 0 1px var(--rd-hair)' }}>
+            <div className="mono" style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, marginBottom: 4,
+              color: on ? 'var(--rd-led)' : 'var(--rd-text-mut)' }}>{bi + 1}</div>
+            <div style={{ display: 'flex', gap: 3 }}>
+              {cells.map((grp) => (
+                <div key={grp.hi} style={{ flex: 1, display: 'flex', gap: 3, paddingLeft: grp.hi === 1 ? 3 : 0,
+                  boxShadow: grp.hi === 1 ? 'inset 1px 0 0 rgba(255,108,192,.4)' : 'none' }}>
+                  {grp.list.map((idx) => (
+                    <Pad key={idx} on={lit.has(idx)} color={color} cymbal={voice.cymbal}
+                      art={(voice.arts || {})[idx] || (voice.cymbal ? 'closed' : 'normal')} padH={padH}
+                      current={currentCell === idx}
+                      onClick={(e) => { if (e && e.stopPropagation) e.stopPropagation(); onCell(idx); }} />
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function VoiceLane({ voice, beatsPerBar, padH, active, currentCell, onCell, onSetSub, onSplit, onMerge, onSetHalfSub }) {
   const color = DCH[voice.color] || voice.color || 'var(--rd-led)';
   const layout = voiceLayout(voice);
@@ -152,6 +190,7 @@ function GrooveDesigner({ groove, onChange, onDelete, onBack, bpm, onBpmChange }
   const isMobile = dUseIsMobile();
   const [g, setG] = React.useState(() => BB.grooveToVoices(groove));
   const [activeId, setActiveId] = React.useState(() => (BB.grooveToVoices(groove).voices[0] || {}).id);
+  const [activeBeat, setActiveBeat] = React.useState(0); // mobile: which beat's figure we edit
   const [playing, setPlaying] = React.useState(false);
   const [curByVoice, setCurByVoice] = React.useState({});
   const [loop, setLoop] = React.useState(true);
@@ -427,6 +466,121 @@ function GrooveDesigner({ groove, onChange, onDelete, onBack, bpm, onBpmChange }
       ))}
     </div>
   );
+
+  // ── mobile-only pieces ──
+  const ab = Math.min(activeBeat, bpb - 1);
+  const abStruct = active && active.structure ? active.structure[ab] : null;
+  const BigFig = ({ value, onPick, opts = [1, 2, 3, 4] }) => (
+    <div className="seg" style={{ padding: 3 }}>
+      {opts.map((s) => (
+        <button key={s} data-on={value === s ? '1' : '0'} onClick={() => onPick(s)}
+          style={{ padding: '8px 14px', fontSize: 16, minWidth: 44 }}>{FIG[s]}</button>
+      ))}
+    </div>
+  );
+  const mobileVoiceStrip = (
+    <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4, WebkitOverflowScrolling: 'touch' }}>
+      {voices.map((v) => {
+        const on = v.id === activeId; const c = DCH[v.color] || 'var(--rd-text)';
+        return (
+          <button key={v.id} onClick={() => setActiveId(v.id)}
+            style={{ appearance: 'none', cursor: 'pointer', flexShrink: 0, border: 0, fontFamily: 'var(--rd-font)',
+              padding: '9px 13px', fontSize: 13, fontWeight: on ? 800 : 600, letterSpacing: '.02em',
+              color: on ? '#160a02' : 'var(--rd-text-dim)',
+              background: on ? c : 'var(--rd-ink)',
+              boxShadow: on ? `0 0 10px ${c}66` : 'inset 0 1px 2px rgba(0,0,0,.5)' }}>
+            {v.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+  const mobileFigure = active && (
+    <div className="panel" style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span className="eng" style={{ fontSize: 9 }}>Tiempo</span>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {Array.from({ length: bpb }).map((_, b) => (
+            <button key={b} onClick={() => setActiveBeat(b)} data-on={b === ab ? '1' : '0'}
+              className="seg" style={{ display: 'inline-flex' }}>
+              <span style={{ padding: '7px 12px', fontSize: 14, fontWeight: 700, fontFamily: 'var(--rd-mono)',
+                color: b === ab ? 'var(--rd-led)' : 'var(--rd-text-mut)' }}>{b + 1}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span className="eng" style={{ fontSize: 9 }}>Figura</span>
+        {abStruct && abStruct.halves ? (
+          <React.Fragment>
+            <BigFig value={abStruct.halves[0].sub} onPick={(s) => onSetHalfSub(ab, 0, s)} opts={[1, 2, 3]} />
+            <span style={{ color: 'var(--ch-magenta)', fontWeight: 800 }}>+</span>
+            <BigFig value={abStruct.halves[1].sub} onPick={(s) => onSetHalfSub(ab, 1, s)} opts={[1, 2, 3]} />
+            <button className="btn ghost" style={{ padding: '8px 12px', fontSize: 12 }} onClick={() => onMerge(ab)}>↤ Unir</button>
+          </React.Fragment>
+        ) : (
+          <React.Fragment>
+            <BigFig value={abStruct ? abStruct.sub : 1} onPick={(s) => onSetSub(ab, s)} />
+            <button className="btn ghost" style={{ padding: '8px 14px', fontSize: 14, color: 'var(--ch-magenta)' }} onClick={() => onSplit(ab)} title="Dividir en dos mitades">½</button>
+          </React.Fragment>
+        )}
+      </div>
+    </div>
+  );
+  const mobileGrid = active && (
+    <div className="staff" style={{ padding: 12 }}>
+      <MobileVoiceGrid voice={active} beats={bpb} padH={40} currentCell={curByVoice[active.id]}
+        activeBeat={ab} onCell={onCell} onSelectBeat={setActiveBeat} />
+    </div>
+  );
+  // compact read-only rows of the OTHER voices → keep the whole pattern in view
+  const mobileOthers = voices.length > 1 && (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <span className="eng" style={{ fontSize: 9 }}>Otras voces (toca para editar)</span>
+      <div className="staff" style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {voices.filter((v) => v.id !== activeId).map((v) => (
+          <div key={v.id} onClick={() => setActiveId(v.id)} style={{ cursor: 'pointer' }}>
+            <VoiceLane voice={v} beatsPerBar={bpb} padH={16} active={false} currentCell={curByVoice[v.id]}
+              onCell={() => {}} onSetSub={() => {}} onSplit={() => {}} onMerge={() => {}} onSetHalfSub={() => {}} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  if (isMobile) {
+    return (
+      <React.Fragment>
+        <DTopBar title={g.name || 'Groove'} sub={`${g.sig || '4/4'} · ${active ? active.label : ''}`} dense back onBack={onBack}
+          right={onDelete ? <button className="btn ghost icon" title="Eliminar" onClick={() => onDelete(g.id)}><DIcon d={DIC.trash} size={16} /></button> : null} />
+        <div className="rd-scroll" style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <input value={g.name} onChange={(e) => setName(e.target.value)} placeholder="Nombre del groove"
+            style={{ background: 'var(--rd-ink)', border: '1px solid var(--rd-hair-strong)', color: 'var(--rd-text)',
+              padding: '10px 12px', fontFamily: 'var(--rd-font)', fontSize: 16, fontWeight: 700, width: '100%' }} />
+          {mobileVoiceStrip}
+          {mobileGrid}
+          {mobileFigure}
+          <div className="eng" style={{ fontSize: 9, color: 'var(--rd-text-faint)' }}>
+            Toca una celda: encender → {active && active.cymbal ? 'cerrado → abierto → pie' : 'acento → ghost'} → apagar.
+          </div>
+          {mobileOthers}
+          {syllables}
+          {addInstrument}
+          {hardware}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <div className="seg" style={{ flex: 1 }}>
+              {SIGS.map((s) => <button key={s.id} data-on={(g.sig || '4/4') === s.id ? '1' : '0'} onClick={() => setSig(s.id)} style={{ flex: 1 }}>{s.id}</button>)}
+            </div>
+            {voices.length > 1 && (
+              <button className="btn ghost" style={{ fontSize: 11, color: 'var(--rd-danger)' }} onClick={() => removeVoice(activeId)}>
+                <DIcon d={DIC.trash} size={12} /> Quitar {active && active.label}
+              </button>
+            )}
+          </div>
+        </div>
+      </React.Fragment>
+    );
+  }
 
   return (
     <React.Fragment>
