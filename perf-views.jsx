@@ -109,10 +109,23 @@ function PerfLane({ voice, beats, h, phase }) {
  * the viewport the track scrolls horizontally and auto-follows the playhead
  * (piano-roll style), so a 24-beat groove stays readable instead of crushed. */
 const MIN_BEAT = 56;
+const ZOOM_KEY = 'backbeat.perfzoom.v1';
+const ZOOM_STEPS = [1, 1.5, 2, 3, 4];
+function loadZoom() {
+  try { const z = parseFloat(localStorage.getItem(ZOOM_KEY)); return ZOOM_STEPS.includes(z) ? z : 1; }
+  catch (e) { return 1; }
+}
 function PerfGroove({ voices = [], beats = 4, phase = 0, h = 42 }) {
   const scRef = React.useRef(null);
   const trackRef = React.useRef(null);
-  const trackMin = LABELW + beats * MIN_BEAT;
+  const [zoom, setZoomState] = React.useState(loadZoom);
+  const setZoom = (z) => { setZoomState(z); try { localStorage.setItem(ZOOM_KEY, String(z)); } catch (e) {} };
+  const stepZoom = (dir) => {
+    const i = ZOOM_STEPS.indexOf(zoom);
+    const ni = Math.max(0, Math.min(ZOOM_STEPS.length - 1, (i < 0 ? 0 : i) + dir));
+    setZoom(ZOOM_STEPS[ni]);
+  };
+  const trackMin = LABELW + beats * MIN_BEAT * zoom;
   // keep the playhead centred while playing (no manual scrolling needed)
   React.useEffect(() => {
     const sc = scRef.current, tr = trackRef.current;
@@ -124,6 +137,16 @@ function PerfGroove({ voices = [], beats = 4, phase = 0, h = 42 }) {
   });
   return (
     <div className="staff" style={{ padding: '10px 0', position: 'relative' }}>
+      {/* zoom control — spread out dense subdivisions (e.g. fusas) */}
+      <div style={{ position: 'absolute', top: 6, right: 8, zIndex: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+        <button onClick={() => stepZoom(-1)} disabled={zoom <= ZOOM_STEPS[0]} title="Alejar"
+          style={{ appearance: 'none', border: '1px solid var(--rd-hair-strong)', background: 'var(--rd-ink)', color: 'var(--rd-text-dim)',
+            width: 26, height: 26, cursor: 'pointer', fontSize: 16, lineHeight: 1, opacity: zoom <= ZOOM_STEPS[0] ? .4 : 1 }}>−</button>
+        <span className="mono" style={{ fontSize: 10, color: 'var(--rd-text-mut)', minWidth: 26, textAlign: 'center' }}>{zoom}×</span>
+        <button onClick={() => stepZoom(1)} disabled={zoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1]} title="Acercar"
+          style={{ appearance: 'none', border: '1px solid var(--rd-hair-strong)', background: 'var(--rd-ink)', color: 'var(--rd-text-dim)',
+            width: 26, height: 26, cursor: 'pointer', fontSize: 16, lineHeight: 1, opacity: zoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1] ? .4 : 1 }}>+</button>
+      </div>
       <div ref={scRef} style={{ overflowX: 'auto', overflowY: 'hidden' }}>
         <div ref={trackRef} style={{ position: 'relative', width: `max(100%, ${trackMin}px)`, padding: '0 12px' }}>
           {/* beat ruler */}
