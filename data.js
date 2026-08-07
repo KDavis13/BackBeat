@@ -66,7 +66,7 @@
     // Demo: rhythmic ladder — 6 bars of 4/4, each bar a different subdivision
     // (negras, corcheas, tresillos, semicorcheas, seisillos, fusas). A groove
     // is a single looping "bar", so the 6 bars live as one 24-beat groove
-    // (6 × 4 beats). Hi-hat plays every subdivision; kick marks every beat.
+    // (6 × 4 beats). Snare (caja) plays every subdivision; kick marks every beat.
     {
       id: 'ladder', name: 'Escalera 4/4 · 6 compases (demo)',
       beatsPerBar: 24,
@@ -81,7 +81,7 @@
           for (let bt = 0; bt < 4; bt++) {
             const start = idx;
             for (let i = 0; i < s; i++) {
-              out.push({ step: idx, sound: 'hat', velocity: 0.8, text: (bt === 0 && i === 0) ? names[bar] : '' });
+              out.push({ step: idx, sound: 'snare', velocity: 0.8, text: (bt === 0 && i === 0) ? names[bar] : '' });
               idx++;
             }
             out.push({ step: start, sound: 'kick', velocity: bt === 0 ? 1.0 : 0.9, text: '' });
@@ -391,15 +391,21 @@
   // One-time injection of newly-shipped demo grooves, even for devices that
   // already have a stored onoma list. Guarded by a per-seed flag so it runs
   // once and does NOT come back if the user later deletes the groove.
-  const SEED_FLAG = 'backbeat.seed.ladder.v1';
+  // v2 = ladder now uses snare (caja) instead of hi-hat. Bumping the flag makes
+  // this run once more on devices that already have the old hi-hat version and
+  // REPLACE it with the fresh seed (also injects it if missing).
+  const SEED_FLAG = 'backbeat.seed.ladder.v2';
   function ensureSeedGrooves(list) {
     try {
       if (localStorage.getItem(SEED_FLAG)) return list;
       localStorage.setItem(SEED_FLAG, '1');
-      if (!list.some((g) => g && g.id === 'ladder')) {
-        const seed = ONOMATOPOEIAS.find((g) => g.id === 'ladder');
-        if (seed) return [JSON.parse(JSON.stringify(seed)), ...list];
+      const seed = ONOMATOPOEIAS.find((g) => g.id === 'ladder');
+      if (!seed) return list;
+      const fresh = JSON.parse(JSON.stringify(seed));
+      if (list.some((g) => g && g.id === 'ladder')) {
+        return list.map((g) => (g && g.id === 'ladder') ? fresh : g);
       }
+      return [fresh, ...list];
     } catch (e) {}
     return list;
   }
