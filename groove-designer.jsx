@@ -77,13 +77,16 @@ function MobileVoiceGrid({ voice, beats, padH = 40, currentCell, activeBeat, onC
   const layout = voiceLayout(voice);
   const lit = new Set(voice.lit || []);
   return (
-    <div style={{ display: 'flex', gap: 4 }}>
+    <div style={{ display: 'flex', gap: 4, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
       {layout.map((beat, bi) => {
         const on = bi === activeBeat;
         const cells = beat.halves
           ? beat.halves.map((h, hi) => ({ hi, list: h.cells })) : [{ hi: 0, list: beat.cells }];
+        // keep pads finger-sized: reserve ~20px per cell; beats grow to fill
+        // the viewport when the groove is small, and scroll when it's dense.
+        const nCells = cells.reduce((n, g) => n + g.list.length, 0);
         return (
-          <div key={bi} onClick={() => onSelectBeat(bi)} style={{ flex: 1, minWidth: 0, cursor: 'pointer',
+          <div key={bi} onClick={() => onSelectBeat(bi)} style={{ flex: '1 0 auto', minWidth: nCells * 20 + 10, cursor: 'pointer',
             padding: 4, borderRadius: 2, background: on ? 'rgba(255,122,26,.10)' : 'transparent',
             boxShadow: on ? 'inset 0 0 0 1px rgba(255,122,26,.35)' : 'inset 0 0 0 1px var(--rd-hair)' }}>
             <div className="mono" style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, marginBottom: 4,

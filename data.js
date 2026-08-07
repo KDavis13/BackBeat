@@ -63,6 +63,33 @@
         { step: 8,  text: 'pa',  sound: 'snare', velocity: 1.0 },
       ],
     },
+    // Demo: rhythmic ladder — 6 bars of 4/4, each bar a different subdivision
+    // (negras, corcheas, tresillos, semicorcheas, seisillos, fusas). A groove
+    // is a single looping "bar", so the 6 bars live as one 24-beat groove
+    // (6 × 4 beats). Hi-hat plays every subdivision; kick marks every beat.
+    {
+      id: 'ladder', name: 'Escalera 4/4 · 6 compases (demo)',
+      beatsPerBar: 24,
+      beatSubdivisions: [1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 6, 6, 6, 6, 8, 8, 8, 8],
+      resolution: 96,
+      hits: (function () {
+        const barSubs = [1, 2, 3, 4, 6, 8];
+        const names = ['negras', 'corcheas', 'tresillos', 'semis', 'seisillos', 'fusas'];
+        const out = [];
+        let idx = 0;
+        barSubs.forEach((s, bar) => {
+          for (let bt = 0; bt < 4; bt++) {
+            const start = idx;
+            for (let i = 0; i < s; i++) {
+              out.push({ step: idx, sound: 'hat', velocity: 0.8, text: (bt === 0 && i === 0) ? names[bar] : '' });
+              idx++;
+            }
+            out.push({ step: start, sound: 'kick', velocity: bt === 0 ? 1.0 : 0.9, text: '' });
+          }
+        });
+        return out;
+      })(),
+    },
   ];
 
   function uid() { return 's_' + Math.random().toString(36).slice(2, 9); }
@@ -361,19 +388,34 @@
     for (let i = 0; i < beatIdx; i++) acc += subs[i];
     return acc + subInBeat;
   }
+  // One-time injection of newly-shipped demo grooves, even for devices that
+  // already have a stored onoma list. Guarded by a per-seed flag so it runs
+  // once and does NOT come back if the user later deletes the groove.
+  const SEED_FLAG = 'backbeat.seed.ladder.v1';
+  function ensureSeedGrooves(list) {
+    try {
+      if (localStorage.getItem(SEED_FLAG)) return list;
+      localStorage.setItem(SEED_FLAG, '1');
+      if (!list.some((g) => g && g.id === 'ladder')) {
+        const seed = ONOMATOPOEIAS.find((g) => g.id === 'ladder');
+        if (seed) return [JSON.parse(JSON.stringify(seed)), ...list];
+      }
+    } catch (e) {}
+    return list;
+  }
   function loadOnoma() {
     try {
       const raw = localStorage.getItem(KEY_ONOMA);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return parsed.map(migrateGroove);
+        if (Array.isArray(parsed)) return ensureSeedGrooves(parsed.map(migrateGroove));
       }
       for (const key of ['backbeat.onoma.v4', 'backbeat.onoma.v3', 'backbeat.onoma.v2']) {
         const v = localStorage.getItem(key);
         if (v) {
           try {
             const p = JSON.parse(v);
-            if (Array.isArray(p)) return p.map(migrateGroove);
+            if (Array.isArray(p)) return ensureSeedGrooves(p.map(migrateGroove));
           } catch (e) {}
         }
       }
