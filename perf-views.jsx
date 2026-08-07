@@ -83,7 +83,8 @@ function PerfLane({ voice, beats, h, phase }) {
   const nextIdx = cells.findIndex((x) => x.on && x.t1 > phase);
   return (
     <div style={{ display: 'flex', alignItems: 'center', height: h }}>
-      <div style={{ width: LABELW, display: 'flex', alignItems: 'center', gap: 7, paddingRight: 10, flexShrink: 0 }}>
+      <div style={{ width: LABELW, display: 'flex', alignItems: 'center', gap: 7, paddingRight: 10, flexShrink: 0,
+        position: 'sticky', left: 0, zIndex: 6, background: '#0e0b07', boxShadow: '6px 0 8px -4px rgba(0,0,0,.8)' }}>
         {voice.cymbal
           ? <span style={{ color: c, fontWeight: 900, fontSize: 13 }}>✕</span>
           : <span style={{ width: 9, height: 9, borderRadius: '50%', background: c, boxShadow: `0 0 6px ${c}` }} />}
@@ -103,30 +104,51 @@ function PerfLane({ voice, beats, h, phase }) {
   );
 }
 
-/* ── Cabezal: lanes + sweeping playhead ───────────────────── */
+/* ── Cabezal: lanes + sweeping playhead ───────────────────────
+ * Each beat keeps a comfortable minimum width; when the groove is longer than
+ * the viewport the track scrolls horizontally and auto-follows the playhead
+ * (piano-roll style), so a 24-beat groove stays readable instead of crushed. */
+const MIN_BEAT = 56;
 function PerfGroove({ voices = [], beats = 4, phase = 0, h = 42 }) {
+  const scRef = React.useRef(null);
+  const trackRef = React.useRef(null);
+  const trackMin = LABELW + beats * MIN_BEAT;
+  // keep the playhead centred while playing (no manual scrolling needed)
+  React.useEffect(() => {
+    const sc = scRef.current, tr = trackRef.current;
+    if (!sc || !tr) return;
+    const cw = tr.offsetWidth, vw = sc.clientWidth;
+    if (cw <= vw + 1) { sc.scrollLeft = 0; return; }
+    const px = LABELW + phase * (cw - LABELW);
+    sc.scrollLeft = Math.max(0, Math.min(cw - vw, px - vw / 2));
+  });
   return (
-    <div className="staff" style={{ padding: '10px 12px', position: 'relative' }}>
-      <div style={{ display: 'flex', height: 24 }}>
-        <div style={{ width: LABELW, flexShrink: 0 }} />
-        <div style={{ flex: 1, position: 'relative' }}>
-          {Array.from({ length: beats }).map((_, b) => {
-            const beatOn = Math.floor(phase * beats) === b;
-            return (
-              <div key={b} style={{ position: 'absolute', left: `${(b / beats) * 100}%`, width: `${100 / beats}%`, textAlign: 'center' }}>
-                <span className="mono" style={{ fontSize: 17, fontWeight: 800,
-                  color: beatOn ? 'var(--rd-led)' : 'var(--rd-text-faint)', textShadow: beatOn ? '0 0 12px var(--rd-led)' : 'none' }}>{b + 1}</span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-      <div style={{ position: 'relative' }}>
-        {voices.map((v) => <PerfLane key={v.id} voice={v} beats={beats} h={h} phase={phase} />)}
-        <div style={{ position: 'absolute', top: 0, bottom: 0, left: `calc(${LABELW}px + ${phase} * (100% - ${LABELW}px))`,
-          width: 3, background: 'var(--rd-led)', boxShadow: '0 0 14px var(--rd-led)', zIndex: 5 }}>
-          <div style={{ position: 'absolute', top: -7, left: '50%', transform: 'translateX(-50%)', width: 0, height: 0,
-            borderLeft: '6px solid transparent', borderRight: '6px solid transparent', borderTop: '8px solid var(--rd-led)' }} />
+    <div className="staff" style={{ padding: '10px 0', position: 'relative' }}>
+      <div ref={scRef} style={{ overflowX: 'auto', overflowY: 'hidden' }}>
+        <div ref={trackRef} style={{ position: 'relative', width: `max(100%, ${trackMin}px)`, padding: '0 12px' }}>
+          {/* beat ruler */}
+          <div style={{ display: 'flex', height: 24 }}>
+            <div style={{ width: LABELW, flexShrink: 0, position: 'sticky', left: 0, zIndex: 6, background: '#0e0b07' }} />
+            <div style={{ flex: 1, position: 'relative' }}>
+              {Array.from({ length: beats }).map((_, b) => {
+                const beatOn = Math.floor(phase * beats) === b;
+                return (
+                  <div key={b} style={{ position: 'absolute', left: `${(b / beats) * 100}%`, width: `${100 / beats}%`, textAlign: 'center' }}>
+                    <span className="mono" style={{ fontSize: 15, fontWeight: 800,
+                      color: beatOn ? 'var(--rd-led)' : 'var(--rd-text-faint)', textShadow: beatOn ? '0 0 12px var(--rd-led)' : 'none' }}>{b + 1}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div style={{ position: 'relative' }}>
+            {voices.map((v) => <PerfLane key={v.id} voice={v} beats={beats} h={h} phase={phase} />)}
+            <div style={{ position: 'absolute', top: 0, bottom: 0, left: `calc(${LABELW}px + ${phase} * (100% - ${LABELW}px))`,
+              width: 3, background: 'var(--rd-led)', boxShadow: '0 0 14px var(--rd-led)', zIndex: 5 }}>
+              <div style={{ position: 'absolute', top: -7, left: '50%', transform: 'translateX(-50%)', width: 0, height: 0,
+                borderLeft: '6px solid transparent', borderRight: '6px solid transparent', borderTop: '8px solid var(--rd-led)' }} />
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -135,7 +157,9 @@ function PerfGroove({ voices = [], beats = 4, phase = 0, h = 42 }) {
 
 /* ── Caída: rhythm-game falling notes ─────────────────────── */
 function FallingGroove({ voices = [], beats = 4, phase = 0, H = 360 }) {
-  const windowBeats = beats;
+  // only show the notes about to arrive — a long groove would otherwise cram
+  // every beat into the lane height and become unreadable.
+  const windowBeats = Math.min(beats, 8);
   const hitY = H - 56;
   const pxPerBeat = (hitY - 16) / windowBeats;
   const playPos = phase * beats; // current beat position in bar

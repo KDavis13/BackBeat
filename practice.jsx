@@ -356,7 +356,7 @@ function Practice({ onomaItems, openOnomaScreen }) {
         </div>
 
         {/* tempo + ramp */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+        <div className="panel" style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <RD.LCD value={bpm} unit="BPM" sub="actual" size={44} />
           {settings.maxBpm > 0 && (
             <React.Fragment>
@@ -381,9 +381,17 @@ function Practice({ onomaItems, openOnomaScreen }) {
 
         {/* performance view */}
         {groove ? (
-          viewMode === 'falling'
-            ? <RP.FallingGroove voices={grooveVoices} beats={grooveBeats} phase={phase} H={380} />
-            : <RP.PerfGroove voices={grooveVoices} beats={grooveBeats} phase={phase} h={48} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 15, fontWeight: 800, letterSpacing: '-.01em' }}>{groove.name}</span>
+              <span className="eng" style={{ fontSize: 8.5, color: 'var(--rd-text-faint)' }}>
+                {grooveBeats} {grooveBeats === 1 ? 'tiempo' : 'tiempos'} · {viewMode === 'falling' ? 'caída' : 'cabezal'}
+              </span>
+            </div>
+            {viewMode === 'falling'
+              ? <RP.FallingGroove voices={grooveVoices} beats={grooveBeats} phase={phase} H={380} />
+              : <RP.PerfGroove voices={grooveVoices} beats={grooveBeats} phase={phase} h={48} />}
+          </div>
         ) : (
           <div className="panel" style={{ padding: 28, textAlign: 'center', color: 'var(--rd-text-mut)' }}>
             Elige un groove arriba — o crea uno desde Grooves — para empezar.
