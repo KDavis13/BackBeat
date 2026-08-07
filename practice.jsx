@@ -81,7 +81,6 @@ function Practice({ onomaItems, openOnomaScreen }) {
   // Set by the ramp ticker when BPM bumps. Read+reset on the next downbeat
   // so the settle-window starts on a bar boundary, not mid-bar.
   const pendingSettleRef = React.useRef(0);
-  const settleRemainingRef = React.useRef(0);
   // Bar-aligned ramp:
   // - pendingBumpRef: timer hit the threshold; waiting for next downbeat
   //   to apply the BPM bump and (optionally) arm the settle window.
@@ -90,6 +89,12 @@ function Practice({ onomaItems, openOnomaScreen }) {
   //   countdown only starts the next time the groove is actually playing.
   const pendingBumpRef = React.useRef(false);
   const timerFrozenRef = React.useRef(false);
+  // Beats of groove muted at the start of the loop(s) after a BPM bump. The
+  // "settle" is measured in real bars (~4 beats), NOT whole groove loops — so a
+  // long groove (e.g. the 24-beat ladder) only gets a short click-only lead-in,
+  // not a full ~26 s of metronome. Mirrored to muteBeatsRef for the rAF viz.
+  const settleBeatsRef = React.useRef(0);
+  const muteBeatsRef = React.useRef(0);
 
   // Cleanup on unmount
   React.useEffect(() => () => {
@@ -156,7 +161,8 @@ function Practice({ onomaItems, openOnomaScreen }) {
 
     lastPatternRef.current = -1;
     pendingSettleRef.current = 0;
-    settleRemainingRef.current = 0;
+    settleBeatsRef.current = 0;
+    muteBeatsRef.current = 0;
     pendingBumpRef.current = false;
     timerFrozenRef.current = false;
     setSettleRemaining(0);
@@ -190,33 +196,39 @@ function Practice({ onomaItems, openOnomaScreen }) {
       const barDur = (60 / activeBpm) * beatsPerBar;
       barRef.current = { start: ev.time, dur: barDur };
 
-      // 2. Settle activation runs in the same handler tick.
+      // 2. Settle activation. A "settle bar" is a real bar (~4 beats), or the
+      //    whole loop when the groove is short (<=8 beats). So on a long groove
+      //    the settle is a brief click-only lead-in, not a full loop of silence.
+      const realBar = beatsPerBar <= 8 ? beatsPerBar : 4;
       if (pendingSettleRef.current > 0) {
-        settleRemainingRef.current = pendingSettleRef.current;
+        settleBeatsRef.current = pendingSettleRef.current * realBar;
         pendingSettleRef.current = 0;
-        setSettleRemaining(settleRemainingRef.current);
       }
+      // Beats muted at the START of this loop (may exceed the loop for short
+      // grooves + multi-bar settle → the whole loop is click-only).
+      const muteBeats = settleBeatsRef.current;
+      muteBeatsRef.current = muteBeats;
+      const fullyMuted = muteBeats >= beatsPerBar;
+      setSettleRemaining(Math.ceil(muteBeats / beatsPerBar));
 
-      if (settleRemainingRef.current > 0) {
-        // Click-only bar: skip groove hits, no loop tally, timer frozen.
-        settleRemainingRef.current -= 1;
-        setSettleRemaining(settleRemainingRef.current);
-        lastPatternRef.current = Math.floor(ev.beat / beatsPerBar);
-        return;
-      }
-
-      // 3. First groove bar back after bump (+ settle, if any): unfreeze
-      //    the ramp timer and restart its countdown from zero.
-      if (timerFrozenRef.current) {
+      // 3. Unfreeze the ramp timer as soon as the groove will actually sound
+      //    this loop (i.e. it isn't fully muted), restarting the countdown.
+      if (!fullyMuted && timerFrozenRef.current) {
         timerFrozenRef.current = false;
         elapsedRef.current = 0;
         setElapsedSec(0);
       }
 
-      groove.hits.forEach((h) => {
-        const off = window.BBData.grooveOffsetInBar(groove, h.step) * barDur;
-        m.schedulePerc(ev.time + off, h.sound, h.velocity);
-      });
+      if (!fullyMuted) {
+        groove.hits.forEach((h) => {
+          const frac = window.BBData.grooveOffsetInBar(groove, h.step);
+          if (frac * beatsPerBar < muteBeats) return; // inside the muted lead-in
+          m.schedulePerc(ev.time + frac * barDur, h.sound, h.velocity);
+        });
+      }
+      // consume one loop's worth of the mute window
+      if (settleBeatsRef.current > 0) settleBeatsRef.current = Math.max(0, settleBeatsRef.current - beatsPerBar);
+
       const patternIdx = Math.floor(ev.beat / beatsPerBar);
       if (patternIdx !== lastPatternRef.current) {
         if (lastPatternRef.current >= 0 && patternIdx > lastPatternRef.current) {
@@ -255,7 +267,9 @@ function Practice({ onomaItems, openOnomaScreen }) {
           const fraction = (elapsed % dur) / dur;
           setPhase(fraction);
           // During the settle window the groove is muted → don't light a cell.
-          setCurrentStep(settleRemainingRef.current > 0 ? -1 : window.BBData.grooveCellAtFraction(groove, fraction));
+          // don't light a cell that's inside the muted click-only lead-in
+          const muted = fraction * grooveBeats < muteBeatsRef.current;
+          setCurrentStep(muted ? -1 : window.BBData.grooveCellAtFraction(groove, fraction));
         }
       }
       raf = requestAnimationFrame(tick);
@@ -271,7 +285,8 @@ function Practice({ onomaItems, openOnomaScreen }) {
     totalRef.current = 0;
     lastPatternRef.current = -1;
     pendingSettleRef.current = 0;
-    settleRemainingRef.current = 0;
+    settleBeatsRef.current = 0;
+    muteBeatsRef.current = 0;
     pendingBumpRef.current = false;
     timerFrozenRef.current = false;
     setSettleRemaining(0);
