@@ -110,21 +110,34 @@ function PerfLane({ voice, beats, h, phase }) {
  * (piano-roll style), so a 24-beat groove stays readable instead of crushed. */
 const MIN_BEAT = 56;
 const ZOOM_KEY = 'backbeat.perfzoom.v1';
-const ZOOM_STEPS = [1, 1.5, 2, 3, 4];
-function loadZoom() {
-  try { const z = parseFloat(localStorage.getItem(ZOOM_KEY)); return ZOOM_STEPS.includes(z) ? z : 1; }
+const FALLZOOM_KEY = 'backbeat.fallzoom.v1';
+const ZOOM_STEPS = [1, 1.5, 2, 3, 4, 6];
+function loadZoomFrom(key) {
+  try { const z = parseFloat(localStorage.getItem(key)); return ZOOM_STEPS.includes(z) ? z : 1; }
   catch (e) { return 1; }
+}
+/* shared − N× + stepper for the perf views */
+function ZoomControl({ zoom, onStep }) {
+  const first = zoom <= ZOOM_STEPS[0], last = zoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1];
+  const btn = (dis) => ({ appearance: 'none', border: '1px solid var(--rd-hair-strong)', background: 'var(--rd-ink)',
+    color: 'var(--rd-text-dim)', width: 26, height: 26, cursor: 'pointer', fontSize: 16, lineHeight: 1, opacity: dis ? .4 : 1 });
+  return (
+    <div style={{ position: 'absolute', top: 6, right: 8, zIndex: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+      <button onClick={() => onStep(-1)} disabled={first} title="Alejar" style={btn(first)}>−</button>
+      <span className="mono" style={{ fontSize: 10, color: 'var(--rd-text-mut)', minWidth: 26, textAlign: 'center' }}>{zoom}×</span>
+      <button onClick={() => onStep(1)} disabled={last} title="Acercar" style={btn(last)}>+</button>
+    </div>
+  );
+}
+function stepZoomVal(zoom, dir) {
+  const i = ZOOM_STEPS.indexOf(zoom);
+  return ZOOM_STEPS[Math.max(0, Math.min(ZOOM_STEPS.length - 1, (i < 0 ? 0 : i) + dir))];
 }
 function PerfGroove({ voices = [], beats = 4, phase = 0, h = 42 }) {
   const scRef = React.useRef(null);
   const trackRef = React.useRef(null);
-  const [zoom, setZoomState] = React.useState(loadZoom);
-  const setZoom = (z) => { setZoomState(z); try { localStorage.setItem(ZOOM_KEY, String(z)); } catch (e) {} };
-  const stepZoom = (dir) => {
-    const i = ZOOM_STEPS.indexOf(zoom);
-    const ni = Math.max(0, Math.min(ZOOM_STEPS.length - 1, (i < 0 ? 0 : i) + dir));
-    setZoom(ZOOM_STEPS[ni]);
-  };
+  const [zoom, setZoomState] = React.useState(() => loadZoomFrom(ZOOM_KEY));
+  const stepZoom = (dir) => { const z = stepZoomVal(zoom, dir); setZoomState(z); try { localStorage.setItem(ZOOM_KEY, String(z)); } catch (e) {} };
   const trackMin = LABELW + beats * MIN_BEAT * zoom;
   // keep the playhead centred while playing (no manual scrolling needed)
   React.useEffect(() => {
@@ -137,16 +150,8 @@ function PerfGroove({ voices = [], beats = 4, phase = 0, h = 42 }) {
   });
   return (
     <div className="staff" style={{ padding: '10px 0', position: 'relative' }}>
-      {/* zoom control — spread out dense subdivisions (e.g. fusas) */}
-      <div style={{ position: 'absolute', top: 6, right: 8, zIndex: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
-        <button onClick={() => stepZoom(-1)} disabled={zoom <= ZOOM_STEPS[0]} title="Alejar"
-          style={{ appearance: 'none', border: '1px solid var(--rd-hair-strong)', background: 'var(--rd-ink)', color: 'var(--rd-text-dim)',
-            width: 26, height: 26, cursor: 'pointer', fontSize: 16, lineHeight: 1, opacity: zoom <= ZOOM_STEPS[0] ? .4 : 1 }}>−</button>
-        <span className="mono" style={{ fontSize: 10, color: 'var(--rd-text-mut)', minWidth: 26, textAlign: 'center' }}>{zoom}×</span>
-        <button onClick={() => stepZoom(1)} disabled={zoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1]} title="Acercar"
-          style={{ appearance: 'none', border: '1px solid var(--rd-hair-strong)', background: 'var(--rd-ink)', color: 'var(--rd-text-dim)',
-            width: 26, height: 26, cursor: 'pointer', fontSize: 16, lineHeight: 1, opacity: zoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1] ? .4 : 1 }}>+</button>
-      </div>
+      {/* zoom — widen each beat to spread out dense subdivisions (e.g. fusas) */}
+      <ZoomControl zoom={zoom} onStep={stepZoom} />
       <div ref={scRef} style={{ overflowX: 'auto', overflowY: 'hidden' }}>
         <div ref={trackRef} style={{ position: 'relative', width: `max(100%, ${trackMin}px)`, padding: '0 12px' }}>
           {/* beat ruler */}
@@ -180,14 +185,19 @@ function PerfGroove({ voices = [], beats = 4, phase = 0, h = 42 }) {
 
 /* ── Caída: rhythm-game falling notes ─────────────────────── */
 function FallingGroove({ voices = [], beats = 4, phase = 0, H = 360 }) {
-  // only show the notes about to arrive — a long groove would otherwise cram
-  // every beat into the lane height and become unreadable.
-  const windowBeats = Math.min(beats, 8);
+  // Zoom spreads the falling notes: higher zoom → fewer beats visible → each
+  // beat is taller → dense subdivisions (fusas/semis) are clearly spaced,
+  // at the cost of seeing fewer beats ahead (sparse hits arrive later).
+  const [zoom, setZoomState] = React.useState(() => loadZoomFrom(FALLZOOM_KEY));
+  const stepZoom = (dir) => { const z = stepZoomVal(zoom, dir); setZoomState(z); try { localStorage.setItem(FALLZOOM_KEY, String(z)); } catch (e) {} };
+  const winBase = Math.min(beats, 8);
   const hitY = H - 56;
-  const pxPerBeat = (hitY - 16) / windowBeats;
+  const pxPerBeat = ((hitY - 16) / winBase) * zoom;   // taller beat = more spacing
+  const visibleBeats = (hitY - 16) / pxPerBeat;        // = winBase / zoom
   const playPos = phase * beats; // current beat position in bar
   return (
     <div style={{ position: 'relative', height: H, display: 'flex', gap: 6, padding: '0 6px' }}>
+      <ZoomControl zoom={zoom} onStep={stepZoom} />
       <div style={{ position: 'absolute', left: 6, right: 6, top: hitY, height: 3, background: 'var(--rd-led)', boxShadow: '0 0 16px var(--rd-led)', zIndex: 4 }} />
       <div style={{ position: 'absolute', right: 10, top: hitY - 24, zIndex: 5 }} className="chip live blink"><span className="led on" style={{ width: 6, height: 6 }} /> GOLPEA</div>
       {voices.map((v) => {
@@ -199,7 +209,7 @@ function FallingGroove({ voices = [], beats = 4, phase = 0, H = 360 }) {
             {cells.map((cell, i) => {
               const t = cell.t0 * beats; // beat position of this hit
               let dist = ((t - playPos) % beats + beats) % beats; // beats until it reaches the line
-              if (dist >= windowBeats) return null;
+              if (dist >= visibleBeats) return null;
               const y = hitY - dist * pxPerBeat;
               const now = dist < 0.08;
               const acc = cell.art === 'accent';
